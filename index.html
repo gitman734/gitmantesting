@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>小朋友寫字姿勢監察 App</title>
+    <!-- 引入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 Google MediaPipe Pose 機器學習函式庫 -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+</head>
+<body class="bg-slate-900 text-white min-h-screen flex flex-col items-center justify-between p-4">
+
+    <!-- 頂部標題與狀態列 -->
+    <header class="w-full max-w-md text-center py-2">
+        <h1 class="text-xl font-bold tracking-wide">👀 寫字姿勢守護眼</h1>
+        <div id="status-badge" class="mt-2 py-2 px-4 rounded-full text-sm font-semibold transition-all bg-emerald-600 text-white shadow-lg">
+            請點擊下方按鈕啟動相機
+        </div>
+    </header>
+
+    <!-- 鏡頭預覽與骨架視覺化區域 -->
+    <main class="relative w-full max-w-md aspect-[3/4] bg-black rounded-2xl overflow-hidden shadow-2xl border-4 border-slate-700 flex items-center justify-center">
+        <!-- 視訊串流 -->
+        <video id="webcam" class="absolute inset-0 w-full h-full object-cover -scale-x-100" playsinline></video>
+        <!-- 繪製骨架的 Canvas -->
+        <canvas id="output_canvas" class="absolute inset-0 w-full h-full object-cover -scale-x-100"></canvas>
+        
+        <!-- 初始提示遮罩 -->
+        <div id="start-overlay" class="absolute inset-0 bg-slate-900/90 flex flex-col items-center justify-center p-6 text-center z-10">
+            <div class="text-5xl mb-4">📸</div>
+            <p class="text-slate-300 text-sm mb-6">將 iPad / 平板固定在小朋友正前方，確保鏡頭能拍到頭部與肩膀。</p>
+            <button id="start-btn" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-8 rounded-xl shadow-lg transition-transform active:scale-95 text-lg">
+                啟動監察相機
+            </button>
+        </div>
+    </main>
+
+    <!-- 底部控制面板 -->
+    <footer class="w-full max-w-md mt-4 bg-slate-800 p-4 rounded-2xl shadow-inner flex flex-col gap-3">
+        <div class="flex justify-between items-center text-sm text-slate-300">
+            <span>不合格持續時間: <strong id="timer-val" class="text-amber-400">0 秒</strong></span>
+            <button id="test-audio" class="text-xs bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-lg text-slate-200">測試語音提醒</button>
+        </div>
+        <div class="text-xs text-slate-400 text-center">
+            💡 提示：當頭部過度靠近桌面或寒背超過 3 秒，系統會自動發出語音警告。
+        </div>
+    </footer>
+
+    <!-- 核心 AI 邏輯與相機控制 Script -->
+    <script>
+        const videoElement = document.getElementById('webcam');
+        const canvasElement = document.getElementById('output_canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        const statusBadge = document.getElementById('status-badge');
+        const startOverlay = document.getElementById('start-overlay');
+        const startBtn = document.getElementById('start-btn');
+        const timerVal = document.getElementById('timer-val');
+        const testAudioBtn = document.getElementById('test-audio');
+
+        let badPostureSeconds = 0;
+        let alertTimer = null;
+        let isMonitoring = false;
+
+        // 語音提醒函數
+        function speakWarning() {
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel();
+                const utterance = new SpeechSynthesisUtterance('請坐直個人，不要寒背！');
+                utterance.lang = 'zh-HK';
+                utterance.rate = 1.0;
+                window.speechSynthesis.speak(utterance);
+            }
+        }
+
+        testAudioBtn.addEventListener('click', () => {
+            speakWarning();
+        });
+
+        // 初始化 MediaPipe Pose 模型
+        const pose = new Pose({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+        });
+
+        pose.setOptions({
+            modelComplexity: 1,
+            smoothLandmarks: true,
+            enableSegmentation: false,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+
+        pose.onResults(onResults);
+
+        function onResults(results) {
+            if (!isMonitoring) return;
+
+            canvasElement.width = videoElement.videoWidth;
+            canvasElement.height = videoElement.videoHeight;
+
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+            if (results.poseLandmarks) {
+                const landmarks = results.poseLandmarks;
+                const nose = landmarks[0];
+                const leftShoulder = landmarks[11];
+                const rightShoulder = landmarks[12];
+
+                if (nose && leftShoulder && rightShoulder) {
+                    const shoulderY = (leftShoulder.y + rightShoulder.y) / 2;
+                    const headToShoulderDist = shoulderY - nose.y;
+                    const threshold = 0.12;
+
+                    if (headToShoulderDist < threshold) {
+                        statusBadge.className = "mt-2 py-2 px-4 rounded-full text-sm font-semibold transition-all bg-rose-600 text-white shadow-lg animate-pulse";
+                        statusBadge.innerText = "⚠️ 偵測到寒背或頭部過低！";
+                        
+                        if (!alertTimer) {
+                            alertTimer = setInterval(() => {
+                                badPostureSeconds++;
+                                timerVal.innerText = `${badPostureSeconds} 秒`;
+                                if (badPostureSeconds >= 3) {
+                                    speakWarning();
+                                }
+                            }, 1000);
+                        }
+                    } else {
+                        statusBadge.className = "mt-2 py-2 px-4 rounded-full text-sm font-semibold transition-all bg-emerald-600 text-white shadow-lg";
+                        statusBadge.innerText = "✅ 坐姿標準，繼續保持！";
+                        resetTimer();
+                    }
+                }
+            } else {
+                statusBadge.className = "mt-2 py-2 px-4 rounded-full text-sm font-semibold transition-all bg-amber-600 text-white shadow-lg";
+                statusBadge.innerText = "🔍 尋找中：請讓小朋友面向鏡頭";
+                resetTimer();
+            }
+
+            canvasCtx.restore();
+        }
+
+        function resetTimer() {
+            if (alertTimer) {
+                clearInterval(alertTimer);
+                alertTimer = null;
+            }
+            badPostureSeconds = 0;
+            timerVal.innerText = `0 秒`;
+        }
+
+        startBtn.addEventListener('click', async () => {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+                    audio: false
+                });
+                videoElement.srcObject = stream;
+                await videoElement.play();
+
+                startOverlay.style.display = 'none';
+                isMonitoring = true;
+
+                const camera = new Camera(videoElement, {
+                    onFrame: async () => {
+                        if (isMonitoring) {
+                            await pose.send({ image: videoElement });
+                        }
+                    },
+                    width: 640,
+                    height: 480
+                });
+                camera.start();
+
+            } catch (err) {
+                alert("無法開啟相機，請檢查 Safari 相機權限設定：\n" + err.message);
+                console.error(err);
+            }
+        });
+    </script>
+</body>
+</html>
