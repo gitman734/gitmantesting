@@ -4,26 +4,36 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>接待系統</title>
-  
-  <!-- 引入 Tailwind CSS -->
+  <!-- 載入 Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
-  
-  <!-- 引入 Babel 讓瀏覽器直接編譯 React -->
+  <!-- 載入 Babel 用於瀏覽器內編譯 JSX -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
-  <!-- 新增：Import Map 解決 bare specifier 錯誤 -->
+  
+  <!-- 定義模組路徑 (Import Map) 解決瀏覽器載入問題 -->
   <script type="importmap">
     {
       "imports": {
-        "react": "https://esm.sh/react@18.2.0",
-        "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
-        "lucide-react": "https://esm.sh/lucide-react@0.294.0?external=react"
+        "react": "https://esm.sh/react@18.3.1",
+        "react-dom/client": "https://esm.sh/react-dom@18.3.1/client",
+        "lucide-react": "https://esm.sh/lucide-react@0.460.0?external=react",
+        "firebase/app": "https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js",
+        "firebase/auth": "https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js",
+        "firebase/firestore": "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js"
       }
     }
   </script>
 
   <style>
-    body { overflow-x: hidden; }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Microsoft JhengHei", sans-serif;
+    }
+    @media print {
+      .no-print { display: none !important; }
+      .print-only { display: block !important; }
+      body { background: white !important; color: black !important; }
+      @page { size: landscape; margin: 10mm; }
+    }
   </style>
 </head>
 <body class="bg-slate-50">
@@ -32,92 +42,145 @@
   <script type="text/babel" data-type="module">
     import React, { useState, useEffect, useMemo } from 'react';
     import { createRoot } from 'react-dom/client';
-    import * as Lucide from 'lucide-react';
-    
-    // Firebase imports
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-    import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { getFirestore, doc, setDoc, deleteDoc, onSnapshot, collection } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-    const { 
+    import { 
       Globe, Users, PlaneLanding, Search, Plus, X, Building, 
-      CalendarDays, PlaneTakeoff, UserCheck, Edit, Trash2, 
+      PlaneTakeoff, UserCheck, Edit, Trash2, 
       ChevronDown, ChevronRight, Briefcase, Clock, MonitorPlay, List,
-      Calendar, ChevronLeft, CheckCircle2, Circle, ExternalLink, RefreshCw, AlertTriangle, Cloud, CloudOff
-    } = Lucide;
+      Calendar, CheckCircle2, Circle, ExternalLink, AlertTriangle, 
+      Cloud, Lock, Unlock, Download, Printer, Bus, ShieldCheck
+    } from 'lucide-react';
+    import { initializeApp } from 'firebase/app';
+    import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
+    import { getFirestore, doc, setDoc, deleteDoc, onSnapshot, collection } from 'firebase/firestore';
 
     // ==========================================
     // ☁️ 雲端資料庫設定區
     // ==========================================
     const isLocalPreview = typeof __firebase_config !== 'undefined';
     
-    // ⚠️ 未來如果你想加入雲端同步，請將 Firebase 的設定填入下方的雙引號中
-    // 目前留空的話，系統會自動以「單機版」運行，確保網站在 Vercel 上不會出錯。
     const MY_FIREBASE_CONFIG = {
-      apiKey: "",
-      authDomain: "",
-      projectId: "",
-      storageBucket: "",
-      messagingSenderId: "",
-      appId: ""
+      apiKey: "AIzaSyA8ahAI1iPzfyAsSUvMh_WhQA7DDnieM1A",
+      authDomain: "phoenix-4ee18.firebaseapp.com",
+      projectId: "phoenix-4ee18",
+      storageBucket: "phoenix-4ee18.firebasestorage.app",
+      messagingSenderId: "299272630243",
+      appId: "1:299272630243:web:a8d1872d8cdfdc15c0bad6",
+      measurementId: "G-0TWVDZ4QHQ"
     };
 
     const hasFirebase = isLocalPreview || MY_FIREBASE_CONFIG.apiKey !== "";
     
     let app, auth, db;
     if (hasFirebase) {
-      const config = isLocalPreview ? JSON.parse(__firebase_config) : MY_FIREBASE_CONFIG;
-      app = initializeApp(config);
-      auth = getAuth(app);
-      db = getFirestore(app);
+      try {
+        const config = isLocalPreview ? JSON.parse(__firebase_config) : MY_FIREBASE_CONFIG;
+        app = initializeApp(config);
+        auth = getAuth(app);
+        db = getFirestore(app);
+      } catch (err) {
+        console.error("Firebase init error:", err);
+      }
     }
 
-    const COLLECTION_NAME = 'delegations';
+    const COLLECTION_NAME = 'delegations_ga2026';
 
     const getCollectionRef = () => {
       if (isLocalPreview && typeof __app_id !== 'undefined') {
         return collection(db, 'artifacts', __app_id, 'public', 'data', COLLECTION_NAME);
       }
-      return collection(db, COLLECTION_NAME); 
+      return collection(db, 'artifacts', 'phoenix-4ee18', 'public', 'data', COLLECTION_NAME); 
     };
 
     const getDocRef = (id) => {
       if (isLocalPreview && typeof __app_id !== 'undefined') {
         return doc(db, 'artifacts', __app_id, 'public', 'data', COLLECTION_NAME, id.toString());
       }
-      return doc(db, COLLECTION_NAME, id.toString()); 
+      return doc(db, 'artifacts', 'phoenix-4ee18', 'public', 'data', COLLECTION_NAME, id.toString()); 
     };
 
-    const defaultStatus = { arrived: false, pickedUp: false, atHotel: false, gotPass: false, gotSouvenir: false };
-    const initialDelegations = [
-      { id: 1, country: '美國 (USA)', arrivalDate: '2026-11-17', flightNumber: 'CX881', flightTime: '14:30', delayTime: '16:15', departureDate: '2026-11-21', contactPerson: 'Director S.', accompanyingCount: 2, hotel: '香港瑰麗酒店', status: { ...defaultStatus } },
-      { id: 2, country: '英國 (UK)', arrivalDate: '2026-11-18', flightNumber: 'BA027', flightTime: '09:15', delayTime: null, departureDate: '2026-11-22', contactPerson: 'Rep. Johnson', accompanyingCount: 4, hotel: '香港半島酒店', status: { ...defaultStatus } },
-      { id: 3, country: '加拿大 (CAN)', arrivalDate: '2026-11-17', flightNumber: 'AC015', flightTime: '18:45', delayTime: null, departureDate: '2026-11-20', contactPerson: 'Trade Lead', accompanyingCount: 1, hotel: '香港文華東方酒店', status: { ...defaultStatus, arrived: true, pickedUp: true } },
-      { id: 4, country: '澳洲 (AUS)', arrivalDate: '2026-11-20', flightNumber: 'QF127', flightTime: '11:20', delayTime: null, departureDate: '2026-11-25', contactPerson: 'Consul W.', accompanyingCount: 3, hotel: '香港君悅酒店', status: { ...defaultStatus } },
-      { id: 5, country: '新西蘭 (NZ)', arrivalDate: '2026-11-22', flightNumber: 'NZ081', flightTime: '16:00', delayTime: null, departureDate: '2026-11-26', contactPerson: 'Attaché Lee', accompanyingCount: 0, hotel: '港島香格里拉大酒店', status: { ...defaultStatus } },
-      { id: 6, country: '美國 (USA)', arrivalDate: '2026-11-25', flightNumber: 'UA861', flightTime: '21:30', delayTime: null, departureDate: '2026-11-29', contactPerson: 'Tech Rep D.', accompanyingCount: 1, hotel: '香港瑞吉酒店', status: { ...defaultStatus } }
+    const defaultStatus = { arrived: false, pickedUp: false, atHotel: false, gotPass: false, gotSouvenir: false, departed: false };
+    const defaultTimestamps = { arrived: null, pickedUp: null, atHotel: null, gotPass: null, gotSouvenir: null, departed: null };
+    
+    const LOCAL_STORAGE_KEY = 'delegations_ga2026_backup_v1';
+
+    const getInitialData = () => {
+      try {
+        const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
+        if (saved) return JSON.parse(saved);
+      } catch (e) {
+        console.error(e);
+      }
+      return [];
+    };
+
+    // 固定顯示 2026年11月22日 至 12月12日
+    const TARGET_DATES = [
+      { dateStr: '2026-11-22', label: '11/22', isNov: true },
+      { dateStr: '2026-11-23', label: '11/23', isNov: true },
+      { dateStr: '2026-11-24', label: '11/24', isNov: true },
+      { dateStr: '2026-11-25', label: '11/25', isNov: true },
+      { dateStr: '2026-11-26', label: '11/26', isNov: true },
+      { dateStr: '2026-11-27', label: '11/27', isNov: true },
+      { dateStr: '2026-11-28', label: '11/28', isNov: true },
+      { dateStr: '2026-11-29', label: '11/29', isNov: true },
+      { dateStr: '2026-11-30', label: '11/30', isNov: true },
+      { dateStr: '2026-12-01', label: '12/1', isNov: false },
+      { dateStr: '2026-12-02', label: '12/2', isNov: false },
+      { dateStr: '2026-12-03', label: '12/3', isNov: false },
+      { dateStr: '2026-12-04', label: '12/4', isNov: false },
+      { dateStr: '2026-12-05', label: '12/5', isNov: false },
+      { dateStr: '2026-12-06', label: '12/6', isNov: false },
+      { dateStr: '2026-12-07', label: '12/7', isNov: false },
+      { dateStr: '2026-12-08', label: '12/8', isNov: false },
+      { dateStr: '2026-12-09', label: '12/9', isNov: false },
+      { dateStr: '2026-12-10', label: '12/10', isNov: false },
+      { dateStr: '2026-12-11', label: '12/11', isNov: false },
+      { dateStr: '2026-12-12', label: '12/12', isNov: false }
     ];
 
+    const STATUS_LABELS = {
+      arrived: '到港', 
+      pickedUp: '接機/接車', 
+      atHotel: '到酒店', 
+      gotPass: '拎左入場證', 
+      gotSouvenir: '拎左記念品',
+      departed: '已離港'
+    };
+
     function App() {
-      const [delegations, setDelegations] = useState(initialDelegations);
+      const [delegations, setDelegations] = useState(getInitialData);
       const [user, setUser] = useState(null);
       const [isOnline, setIsOnline] = useState(false);
       const [searchTerm, setSearchTerm] = useState('');
       const [isModalOpen, setIsModalOpen] = useState(false);
       const [editingId, setEditingId] = useState(null);
-      const [expandedCountries, setExpandedCountries] = useState(new Set(['美國 (USA)']));
+      const [expandedCountries, setExpandedCountries] = useState(new Set());
       const [viewMode, setViewMode] = useState('calendar'); 
-      const [currentDate, setCurrentDate] = useState(new Date(2026, 10, 1)); 
       const [quickViewData, setQuickViewData] = useState(null);
-      const [isSyncing, setIsSyncing] = useState(false);
+      const [formError, setFormError] = useState('');
       
+      const [isAdmin, setIsAdmin] = useState(false);
+      const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+      const [passwordInput, setPasswordInput] = useState('');
+      const [loginError, setLoginError] = useState('');
+      const [reportTime, setReportTime] = useState('');
+
       const [confirmModal, setConfirmModal] = useState({ isOpen: false, delegationId: null, statusKey: null, currentStatus: false, label: '' });
       const [formData, setFormData] = useState({
-        country: '', arrivalDate: '', flightNumber: '', flightTime: '', departureDate: '', contactPerson: '', accompanyingCount: 0, hotel: ''
+        country: '', arrivalDate: '2026-11-22', arrivalMode: '空路 (飛機)', flightNumber: '', flightTime: '', departureDate: '2026-11-25', contactPerson: '', accompanyingCount: 0, hotel: ''
       });
 
       useEffect(() => {
-        if (!hasFirebase) return;
+        try {
+          localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(delegations));
+        } catch (e) {
+          console.error(e);
+        }
+        setExpandedCountries(new Set(delegations.map(d => d.country)));
+      }, [delegations]);
+
+      useEffect(() => {
+        if (!hasFirebase || !auth) return;
         const initAuth = async () => {
           try {
             if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
@@ -135,16 +198,12 @@
       }, []);
 
       useEffect(() => {
-        if (!hasFirebase || !user) return;
+        if (!hasFirebase || !user || !db) return;
         const colRef = getCollectionRef();
         const unsubscribe = onSnapshot(colRef, (snapshot) => {
-          if (snapshot.empty && !window.__seeded) {
-            window.__seeded = true;
-            initialDelegations.forEach(d => setDoc(getDocRef(d.id), d));
-            return;
-          }
           const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
-          if (data.length > 0) setDelegations(data);
+          setDelegations(data);
+          setExpandedCountries(new Set(data.map(d => d.country)));
           setIsOnline(true);
         }, (error) => {
           console.error("Firestore sync error:", error);
@@ -153,10 +212,18 @@
         return () => unsubscribe();
       }, [user]);
 
+      const getCurrentTimeStr = () => {
+        const now = new Date();
+        return now.toLocaleString('zh-HK', { 
+          year: 'numeric', month: '2-digit', day: '2-digit',
+          hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false 
+        });
+      };
+
       const stats = useMemo(() => {
         const totalCountries = new Set(delegations.map(d => d.country)).size;
         const totalPeople = delegations.reduce((sum, d) => sum + 1 + Number(d.accompanyingCount), 0);
-        const todayStr = '2026-11-17'; 
+        const todayStr = new Date().toISOString().split('T')[0]; 
         let todayArrivals = 0, upcomingArrivals = 0;
         delegations.forEach(d => {
           if (d.arrivalDate === todayStr) todayArrivals++;
@@ -165,29 +232,92 @@
         return { totalCountries, totalTeams: delegations.length, totalPeople, todayArrivals, upcomingArrivals };
       }, [delegations]);
 
-      const openAddModal = () => { setEditingId(null); setFormData({ country: '', arrivalDate: '', flightNumber: '', flightTime: '', departureDate: '', contactPerson: '', accompanyingCount: 0, hotel: '' }); setIsModalOpen(true); };
-      const openEditModal = (delegation) => { setEditingId(delegation.id); setFormData({ ...delegation }); setIsModalOpen(true); };
+      const handleAdminLogin = (e) => {
+        e.preventDefault();
+        if (passwordInput === 'GA2026') {
+          setIsAdmin(true);
+          setIsLoginModalOpen(false);
+          setPasswordInput('');
+          setLoginError('');
+        } else {
+          setLoginError('登入失敗，請重新輸入！');
+        }
+      };
+
+      const openAddModal = () => { 
+        setEditingId(null); 
+        setFormError('');
+        setFormData({ country: '', arrivalDate: '2026-11-22', arrivalMode: '空路 (飛機)', flightNumber: '', flightTime: '', departureDate: '2026-11-25', contactPerson: '', accompanyingCount: 0, hotel: '' }); 
+        setIsModalOpen(true); 
+      };
+      
+      const openEditModal = (delegation) => { 
+        setEditingId(delegation.id); 
+        setFormError('');
+        setFormData({ arrivalMode: '空路 (飛機)', ...delegation }); 
+        setIsModalOpen(true); 
+      };
 
       const handleSave = async () => {
-        if (!formData.country || !formData.contactPerson || !formData.arrivalDate) return;
-        const docId = editingId ? editingId.toString() : Date.now().toString();
-        const payload = editingId
-          ? { ...formData, id: docId, status: delegations.find(d => d.id.toString() === docId)?.status || defaultStatus }
-          : { ...formData, id: docId, status: { ...defaultStatus } };
-
-        if (hasFirebase && user) {
-          await setDoc(getDocRef(docId), payload);
-        } else {
-          if (editingId) setDelegations(delegations.map(d => d.id.toString() === docId ? payload : d));
-          else setDelegations([...delegations, payload]);
+        if (!formData.country || !formData.country.trim()) {
+          setFormError('⚠️ 請填寫「國家 / 地區」名稱！');
+          return;
         }
+        if (!formData.arrivalDate) {
+          setFormError('⚠️ 請選擇「抵港日期」！');
+          return;
+        }
+        setFormError('');
+
+        const docId = editingId ? editingId.toString() : Date.now().toString();
+        const existingItem = delegations.find(d => d.id.toString() === docId);
+        
+        const cleanedData = {
+          ...formData,
+          country: formData.country.trim(),
+          contactPerson: formData.contactPerson && formData.contactPerson.trim() ? formData.contactPerson.trim() : '未填寫聯絡人',
+          accompanyingCount: Number(formData.accompanyingCount) || 0
+        };
+
+        const payload = editingId
+          ? { 
+              ...cleanedData, 
+              id: docId, 
+              status: existingItem?.status || { ...defaultStatus },
+              statusTimestamps: existingItem?.statusTimestamps || { ...defaultTimestamps }
+            }
+          : { 
+              ...cleanedData, 
+              id: docId, 
+              status: { ...defaultStatus },
+              statusTimestamps: { ...defaultTimestamps }
+            };
+
+        if (editingId) {
+          setDelegations(prev => prev.map(d => d.id.toString() === docId ? payload : d));
+        } else {
+          setDelegations(prev => [...prev, payload]);
+        }
+
+        setExpandedCountries(prev => new Set([...prev, cleanedData.country]));
         setIsModalOpen(false);
         if (quickViewData) setQuickViewData(null);
+
+        if (hasFirebase && user && db) {
+          try {
+            await setDoc(getDocRef(docId), payload);
+          } catch (e) {
+            console.error("Firestore save error:", e);
+          }
+        }
       };
 
       const handleDelete = async (id) => {
-        if (hasFirebase && user) await deleteDoc(getDocRef(id));
-        else setDelegations(delegations.filter(d => d.id !== id));
+        if (!isAdmin) return;
+        setDelegations(prev => prev.filter(d => d.id !== id));
+        if (hasFirebase && user && db) {
+          try { await deleteDoc(getDocRef(id)); } catch (e) { console.error(e); }
+        }
       };
 
       const handleStatusClick = (id, statusKey, currentStatus, label) => {
@@ -197,18 +327,119 @@
       const executeStatusUpdate = async () => {
         const target = delegations.find(d => d.id === confirmModal.delegationId);
         if (!target) return;
-        const newStatus = { ...target.status, [confirmModal.statusKey]: !confirmModal.currentStatus };
         
-        if (hasFirebase && user) {
-          await setDoc(getDocRef(target.id), { status: newStatus }, { merge: true });
-        } else {
-          setDelegations(delegations.map(d => d.id === target.id ? { ...d, status: newStatus } : d));
-        }
+        const nextStatus = !confirmModal.currentStatus;
+        const timeStr = nextStatus ? getCurrentTimeStr() : null;
+
+        const newStatus = { ...(target.status || defaultStatus), [confirmModal.statusKey]: nextStatus };
+        const newTimestamps = { ...(target.statusTimestamps || defaultTimestamps), [confirmModal.statusKey]: timeStr };
+        
+        setDelegations(prev => prev.map(d => d.id === target.id ? { ...d, status: newStatus, statusTimestamps: newTimestamps } : d));
 
         if (quickViewData && quickViewData.id === confirmModal.delegationId) {
-          setQuickViewData(prev => ({ ...prev, status: newStatus }));
+          setQuickViewData(prev => ({ ...prev, status: newStatus, statusTimestamps: newTimestamps }));
         }
         setConfirmModal(prev => ({ ...prev, isOpen: false }));
+
+        if (hasFirebase && user && db) {
+          try {
+            await setDoc(getDocRef(target.id), { status: newStatus, statusTimestamps: newTimestamps }, { merge: true });
+          } catch (e) {
+            console.error(e);
+          }
+        }
+      };
+
+      const handleExportExcel = () => {
+        const genTime = getCurrentTimeStr();
+
+        let tableRows = '';
+        delegations.forEach((d, idx) => {
+          const ts = d.statusTimestamps || {};
+          const st = d.status || {};
+          const formatCell = (key) => st[key] ? `✅ 已完成<br/><span style="font-size:10px;color:#555;">(${ts[key] || '已記錄'})</span>` : '❌ 未完成';
+
+          tableRows += `
+            <tr>
+              <td style="text-align:center;">${idx + 1}</td>
+              <td><b>${d.country}</b></td>
+              <td style="text-align:center;">${d.arrivalMode || '空路 (飛機)'}</td>
+              <td style="text-align:center;">${d.arrivalDate}</td>
+              <td style="text-align:center;">${d.flightNumber || '-'}</td>
+              <td style="text-align:center;">${d.flightTime || '-'}</td>
+              <td style="text-align:center;">${d.departureDate || '-'}</td>
+              <td>${d.contactPerson}</td>
+              <td style="text-align:center;">${d.accompanyingCount}</td>
+              <td style="text-align:center;font-weight:bold;">${1 + Number(d.accompanyingCount)}</td>
+              <td>${d.hotel || '-'}</td>
+              <td style="text-align:center;">${formatCell('arrived')}</td>
+              <td style="text-align:center;">${formatCell('pickedUp')}</td>
+              <td style="text-align:center;">${formatCell('atHotel')}</td>
+              <td style="text-align:center;">${formatCell('gotPass')}</td>
+              <td style="text-align:center;">${formatCell('gotSouvenir')}</td>
+              <td style="text-align:center;">${formatCell('departed')}</td>
+            </tr>
+          `;
+        });
+
+        const excelTemplate = `
+          <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+          <head>
+            <meta charset="UTF-8">
+            <style>
+              td, th { border: 1px solid #cbd5e1; padding: 8px; font-family: "Microsoft JhengHei", sans-serif; font-size: 12px; }
+              th { background-color: #1e293b; color: #ffffff; font-weight: bold; text-align: center; }
+              .header-box { background-color: #f8fafc; font-size: 13px; font-weight: bold; border: 2px solid #0f172a; padding: 12px; }
+            </style>
+          </head>
+          <body>
+            <table>
+              <tr>
+                <td colspan="17" class="header-box">
+                  📋 接待系統 — 代表團接待紀錄表<br/>
+                  🕒 輸出時間：${genTime}
+                </td>
+              </tr>
+              <tr>
+                <th>序號</th>
+                <th>國家/地區</th>
+                <th>抵港方式</th>
+                <th>抵港日期</th>
+                <th>航班/車次編號</th>
+                <th>抵港時間</th>
+                <th>離港日期</th>
+                <th>主要聯絡人</th>
+                <th>同行人數</th>
+                <th>總人數</th>
+                <th>入住酒店</th>
+                <th>1. 到港</th>
+                <th>2. 接機/接車</th>
+                <th>3. 到酒店</th>
+                <th>4. 拎左入場證</th>
+                <th>5. 拎左記念品</th>
+                <th>6. 已離港</th>
+              </tr>
+              ${tableRows || '<tr><td colspan="17" style="text-align:center;">目前尚無資料</td></tr>'}
+            </table>
+          </body>
+          </html>
+        `;
+
+        const blob = new Blob([excelTemplate], { type: 'application/vnd.ms-excel;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `接待系統名單_${genTime.replace(/[:/\s]/g, '_')}.xls`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      };
+
+      const handleExportPDF = () => {
+        setReportTime(getCurrentTimeStr());
+        setTimeout(() => {
+          window.print();
+        }, 300);
       };
 
       const toggleCountryExpanded = (country) => {
@@ -218,46 +449,28 @@
         setExpandedCountries(newExpanded);
       };
 
-      const handleSyncFlights = async () => {
-        setIsSyncing(true);
-        setTimeout(async () => {
-          const newDelegations = [...delegations];
-          for (const d of newDelegations) {
-            let updated = false;
-            let newDelay = d.delayTime;
-            if (d.arrivalDate === '2026-11-17' && !d.delayTime && Math.random() > 0.3) {
-              const [hours, minutes] = (d.flightTime || '12:00').split(':');
-              const delayedHours = (parseInt(hours) + 1).toString().padStart(2, '0');
-              newDelay = `${delayedHours}:${minutes}`;
-              updated = true;
-            } else if (d.delayTime && Math.random() > 0.5) {
-              newDelay = null;
-              updated = true;
-            }
-            if (updated) {
-              d.delayTime = newDelay;
-              if (hasFirebase && user) await setDoc(getDocRef(d.id), { delayTime: newDelay }, { merge: true });
-            }
-          }
-          if (!hasFirebase) setDelegations(newDelegations);
-          setIsSyncing(false);
-        }, 1500);
-      };
-
       const getFlag = (countryStr) => {
+        if (!countryStr) return '🏳️';
         if (countryStr.includes('美國') || countryStr.includes('USA')) return '🇺🇸';
         if (countryStr.includes('英國') || countryStr.includes('UK')) return '🇬🇧';
         if (countryStr.includes('加拿大') || countryStr.includes('CAN')) return '🇨🇦';
         if (countryStr.includes('澳洲') || countryStr.includes('AUS')) return '🇦🇺';
         if (countryStr.includes('新西蘭') || countryStr.includes('NZ')) return '🇳🇿';
-        return '🏳️';
+        if (countryStr.includes('中國') || countryStr.includes('內地') || countryStr.includes('CHN')) return '🇨🇳';
+        if (countryStr.includes('日本') || countryStr.includes('JPN')) return '🇯🇵';
+        if (countryStr.includes('新加坡') || countryStr.includes('SGP')) return '🇸🇬';
+        return '🌐';
       };
 
       const groupedDelegations = useMemo(() => {
         let filtered = delegations;
         if (searchTerm) {
           const lowerTerm = searchTerm.toLowerCase();
-          filtered = delegations.filter(d => d.country.toLowerCase().includes(lowerTerm) || d.contactPerson.toLowerCase().includes(lowerTerm));
+          filtered = delegations.filter(d => 
+            d.country.toLowerCase().includes(lowerTerm) || 
+            d.contactPerson.toLowerCase().includes(lowerTerm) ||
+            (d.flightNumber && d.flightNumber.toLowerCase().includes(lowerTerm))
+          );
         }
         const groups = {};
         filtered.forEach(d => {
@@ -269,318 +482,665 @@
       }, [delegations, searchTerm]);
 
       const renderCalendar = () => {
-        const year = currentDate.getFullYear();
-        const month = currentDate.getMonth();
-        const daysInMonth = new Date(year, month + 1, 0).getDate();
-        const firstDay = new Date(year, month, 1).getDay(); 
-        const days = [];
         const weekDays = ['日', '一', '二', '三', '四', '五', '六'];
-        
         const headers = weekDays.map((day, idx) => (
-          <div key={`header-${idx}`} className="bg-slate-100 border-b border-slate-200 py-2 text-center text-sm font-bold text-slate-600">星期{day}</div>
+          <div key={`header-${idx}`} className="bg-slate-100 border-b border-slate-200 py-2.5 text-center text-xs sm:text-sm font-bold text-slate-600">
+            星期{day}
+          </div>
         ));
 
-        for (let i = 0; i < firstDay; i++) days.push(<div key={`empty-${i}`} className="bg-slate-50/50 border-b border-r border-slate-200 min-h-[120px]"></div>);
-        
-        for (let d = 1; d <= daysInMonth; d++) {
-          const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-          const dayDelegations = delegations.filter(del => del.arrivalDate === dateStr);
-          days.push(
-            <div key={d} className="bg-white border-b border-r border-slate-200 min-h-[120px] p-1 sm:p-2 hover:bg-slate-50 transition-colors">
-              <div className={`font-bold text-xs sm:text-sm mb-2 w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center rounded-full ${dateStr === '2026-11-17' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-600'}`}>{d}</div>
-              <div className="space-y-1.5">
+        const targetDateSet = new Set(TARGET_DATES.map(d => d.dateStr));
+        const outsideDelegations = delegations.filter(del => !targetDateSet.has(del.arrivalDate));
+        const isLand = (mode) => mode && mode.includes('陸路');
+
+        const days = TARGET_DATES.map((item) => {
+          const dayDelegations = delegations.filter(del => del.arrivalDate === item.dateStr);
+
+          return (
+            <div key={item.dateStr} className={`${item.isNov ? 'bg-white' : 'bg-slate-50/40'} border-b border-r border-slate-200 min-h-[130px] p-1.5 sm:p-2.5 hover:bg-blue-50/20 transition-colors flex flex-col`}>
+              <div className="flex items-center justify-between mb-2">
+                <span className={`text-xs sm:text-sm font-extrabold px-2 py-0.5 rounded-md ${item.isNov ? 'bg-slate-100 text-slate-700' : 'bg-indigo-50 text-indigo-700 border border-indigo-100'}`}>
+                  {item.label}
+                </span>
+                {dayDelegations.length > 0 && (
+                  <span className="text-[10px] font-bold bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">
+                    {dayDelegations.length} 隊
+                  </span>
+                )}
+              </div>
+              <div className="space-y-1.5 flex-1">
                 {dayDelegations.map(del => (
-                  <button key={del.id} onClick={() => setQuickViewData(del)} className={`w-full text-left px-1.5 sm:px-2 py-1 sm:py-1.5 rounded-md text-[10px] sm:text-xs font-semibold border transition-colors truncate shadow-sm flex flex-col gap-0.5 ${del.delayTime ? 'bg-red-50 text-red-700 border-red-200' : 'bg-blue-50 text-blue-700 border-blue-200'}`}>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1 truncate"><span>{getFlag(del.country)}</span><span className="truncate">{del.country.split(' ')[0]}</span></div>
-                      {del.flightNumber && <span className="hidden sm:inline-block text-[9px] opacity-70 px-1 bg-white/50 rounded">{del.flightNumber}</span>}
+                  <button 
+                    key={del.id} 
+                    onClick={() => setQuickViewData(del)} 
+                    className={`w-full text-left px-2 py-1.5 rounded-lg text-[11px] sm:text-xs font-semibold border transition-all shadow-sm flex flex-col gap-0.5 ${
+                      isLand(del.arrivalMode)
+                        ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                        : 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-1">
+                      <div className="flex items-center gap-1 truncate">
+                        <span>{getFlag(del.country)}</span>
+                        <span className="truncate font-bold">{del.country}</span>
+                      </div>
+                      <span className="text-[10px] opacity-80 shrink-0">({1 + Number(del.accompanyingCount)}人)</span>
                     </div>
-                    <div className={`text-[9px] sm:text-[10px] font-medium ml-4 sm:ml-5 ${del.delayTime ? 'text-red-600' : 'text-blue-500'}`}>
-                      {del.delayTime ? <span className="flex items-center gap-1"><AlertTriangle className="h-2.5 w-2.5 hidden sm:block" />改為 {del.delayTime}</span> : <span>抵達: {del.flightTime || '待定'}</span>}
+                    <div className="flex items-center justify-between text-[10px] opacity-90 mt-0.5">
+                      <span className="flex items-center gap-1">
+                        {isLand(del.arrivalMode) ? <Bus className="h-3 w-3" /> : <PlaneLanding className="h-3 w-3" />}
+                        {del.flightTime || '時間待定'}
+                      </span>
+                      {del.flightNumber && <span className="px-1 bg-white/70 rounded font-mono">{del.flightNumber}</span>}
                     </div>
                   </button>
                 ))}
               </div>
             </div>
           );
-        }
+        });
         
         return (
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-            <div className="flex flex-wrap items-center justify-between p-3 sm:p-4 border-b border-slate-200 bg-white gap-2">
-              <h2 className="text-lg sm:text-xl font-bold flex items-center gap-2"><Calendar className="h-5 w-5 text-blue-600" /> {year}年 {month + 1}月</h2>
-              <div className="flex gap-2">
-                <button onClick={() => setCurrentDate(new Date(year, month - 1, 1))} className="p-1.5 sm:p-2 hover:bg-slate-100 rounded-lg text-slate-600 border"><ChevronLeft className="h-4 w-4" /></button>
-                <button onClick={() => setCurrentDate(new Date(year, month + 1, 1))} className="p-1.5 sm:p-2 hover:bg-slate-100 rounded-lg text-slate-600 border"><ChevronRight className="h-4 w-4" /></button>
+            <div className="flex flex-wrap items-center justify-between p-4 border-b border-slate-200 bg-white gap-2">
+              <div className="flex items-center gap-2">
+                <Calendar className="h-5 w-5 text-blue-600" />
+                <h2 className="text-base sm:text-xl font-bold text-slate-800">
+                  接待專屬月曆 (2026年 11月22日 至 12月11日當週)
+                </h2>
+              </div>
+              <div className="flex items-center gap-3 text-xs font-medium text-slate-600">
+                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-blue-100 border border-blue-300 inline-block"></span> 空路抵港</span>
+                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-100 border border-emerald-300 inline-block"></span> 陸路抵港</span>
               </div>
             </div>
-            <div className="grid grid-cols-7 border-l border-slate-200">{headers}{days}</div>
+            <div className="grid grid-cols-7 border-l border-slate-200">
+              {headers}
+              {days}
+            </div>
+            {outsideDelegations.length > 0 && (
+              <div className="p-4 bg-amber-50 border-t border-amber-200">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-xs sm:text-sm font-bold text-amber-900 flex items-center gap-1.5">
+                    <AlertTriangle className="h-4 w-4 text-amber-600" />
+                    其他日期抵港之行程 (非 11月22日 至 12月12日 範圍內，共 {outsideDelegations.length} 隊)：
+                  </h3>
+                  <button onClick={() => setViewMode('list')} className="text-xs font-bold text-blue-600 hover:underline">
+                    切換至「列表」檢視全部 ➔
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                  {outsideDelegations.map(del => (
+                    <button
+                      key={del.id}
+                      onClick={() => setQuickViewData(del)}
+                      className="text-left p-2.5 rounded-lg bg-white border border-amber-300 shadow-sm hover:bg-amber-100/50 transition-all flex items-center justify-between"
+                    >
+                      <div>
+                        <div className="font-bold text-xs text-slate-800">{getFlag(del.country)} {del.country} ({1 + Number(del.accompanyingCount)}人)</div>
+                        <div className="text-[11px] text-amber-700 font-mono mt-0.5">抵港日期: {del.arrivalDate} {del.flightTime}</div>
+                      </div>
+                      <span className="text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded font-bold">點擊打卡</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         );
       };
 
-      const renderStatusBadge = (statusValue, label) => (
-        <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border transition-all ${statusValue ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/50' : 'bg-slate-800 text-slate-500 border-slate-700'}`}>
-          {statusValue ? <CheckCircle2 className="h-4 w-4" /> : <Circle className="h-4 w-4" />} {label}
+      const renderStatusBadge = (statusValue, timestamp, label) => (
+        <div className={`flex flex-col px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${statusValue ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' : 'bg-slate-800 text-slate-500 border-slate-700'}`}>
+          <div className="flex items-center gap-1.5">
+            {statusValue ? <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" /> : <Circle className="h-4 w-4 shrink-0" />} 
+            <span>{label}</span>
+          </div>
+          {statusValue && timestamp && (
+            <span className="text-[10px] text-emerald-400/80 font-mono mt-0.5 pl-5">
+              {timestamp}
+            </span>
+          )}
         </div>
       );
 
       return (
         <div className={`min-h-screen font-sans transition-colors duration-300 ${viewMode === 'control' ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-800'}`}>
-          <header className={`${viewMode === 'control' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'} border-b sticky top-0 z-10 transition-colors`}>
+          <header className={`no-print ${viewMode === 'control' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'} border-b sticky top-0 z-20 transition-colors shadow-sm`}>
             <div className="max-w-[1400px] mx-auto px-4 lg:px-8 flex flex-col lg:flex-row items-center justify-between gap-3 py-3">
               <div className="flex flex-wrap items-center gap-2 justify-center w-full lg:w-auto">
                 <Globe className={`h-6 w-6 ${viewMode === 'control' ? 'text-blue-400' : 'text-blue-600'}`} />
-                <h1 className="text-lg sm:text-xl font-bold">國際代表團接待系統</h1>
+                <h1 className="text-lg sm:text-xl font-bold">接待系統</h1>
                 
-                {hasFirebase ? (
-                  <span className={`px-2 py-0.5 text-xs font-bold rounded flex items-center gap-1 border ${isOnline ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' : 'bg-amber-500/10 text-amber-500 border-amber-500/20'}`}>
-                    <Cloud className="h-3 w-3"/> {isOnline ? '實時同步中' : '連線中...'}
-                  </span>
-                ) : (
-                  <span className="px-2 py-0.5 text-xs font-bold rounded flex items-center gap-1 bg-slate-100 text-slate-500 border border-slate-200" title="尚未設定 Firebase，目前為單機版">
-                    <CloudOff className="h-3 w-3"/> 單機模式
+                {hasFirebase && (
+                  <span className={`px-2 py-0.5 text-xs font-bold rounded flex items-center gap-1 border ${isOnline ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20' : 'bg-amber-500/10 text-amber-600 border-amber-500/20'}`}>
+                    <Cloud className="h-3 w-3"/> {isOnline ? '雲端實時同步中' : '本機模式 (待連線)'}
                   </span>
                 )}
-                {viewMode === 'control' && <span className="px-2 py-0.5 bg-red-500/20 text-red-400 text-xs font-bold rounded animate-pulse border border-red-500/30">大螢幕模式</span>}
+
+                {isAdmin && (
+                  <span className="px-2 py-0.5 bg-amber-500/15 text-amber-600 border border-amber-500/30 text-xs font-extrabold rounded-full flex items-center gap-1">
+                    <ShieldCheck className="h-3.5 w-3.5" /> 後台管理員模式
+                  </span>
+                )}
               </div>
               
               <div className="flex flex-wrap justify-center items-center gap-2 w-full lg:w-auto">
                 <div className={`flex p-1 rounded-lg ${viewMode === 'control' ? 'bg-slate-800' : 'bg-slate-100'}`}>
-                  <button onClick={() => setViewMode('calendar')} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${viewMode === 'calendar' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}><Calendar className="h-4 w-4" /><span className="hidden sm:inline">月曆</span></button>
-                  <button onClick={() => setViewMode('list')} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${viewMode === 'list' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}><List className="h-4 w-4" /><span className="hidden sm:inline">列表</span></button>
-                  <button onClick={() => setViewMode('control')} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${viewMode === 'control' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-500 hover:text-slate-800'}`}><MonitorPlay className="h-4 w-4" /><span className="hidden sm:inline">大螢幕</span></button>
+                  <button onClick={() => setViewMode('calendar')} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs sm:text-sm font-bold transition-all ${viewMode === 'calendar' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>
+                    <Calendar className="h-4 w-4" /><span>月曆</span>
+                  </button>
+                  <button onClick={() => setViewMode('list')} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs sm:text-sm font-bold transition-all ${viewMode === 'list' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>
+                    <List className="h-4 w-4" /><span>列表</span>
+                  </button>
+                  <button onClick={() => setViewMode('control')} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs sm:text-sm font-bold transition-all ${viewMode === 'control' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-500 hover:text-slate-800'}`}>
+                    <MonitorPlay className="h-4 w-4" /><span>指揮中心</span>
+                  </button>
                 </div>
                 
-                <a href="https://www.hongkongairport.com/tc/flights/arrivals/passenger.page" target="_blank" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold bg-sky-50 text-sky-700 border border-sky-200 hover:bg-sky-100"><PlaneLanding className="h-4 w-4" /><span className="hidden sm:inline">航班</span></a>
-                <button onClick={handleSyncFlights} disabled={isSyncing} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 ${isSyncing ? 'opacity-50' : ''}`}><RefreshCw className={`h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`} /><span className="hidden sm:inline">更新</span></button>
-                {viewMode !== 'control' && <button onClick={openAddModal} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><Plus className="h-4 w-4" /><span className="hidden sm:inline">新增</span></button>}
+                <a href="https://www.hongkongairport.com/tc/flights/arrivals/passenger.page" target="_blank" rel="noreferrer" className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold bg-sky-50 text-sky-700 border border-sky-200 hover:bg-sky-100">
+                  <PlaneLanding className="h-4 w-4" /><span className="hidden sm:inline">機場航班</span><ExternalLink className="h-3 w-3 ml-0.5" />
+                </a>
+
+                {isAdmin ? (
+                  <>
+                    <button onClick={openAddModal} className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-xs sm:text-sm font-bold shadow-sm">
+                      <Plus className="h-4 w-4" /><span>新增資料</span>
+                    </button>
+                    <button onClick={handleExportExcel} className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs sm:text-sm font-bold shadow-sm">
+                      <Download className="h-4 w-4" /><span>輸出 Excel</span>
+                    </button>
+                    <button onClick={handleExportPDF} className="flex items-center gap-1.5 bg-rose-600 hover:bg-rose-700 text-white px-3 py-1.5 rounded-lg text-xs sm:text-sm font-bold shadow-sm">
+                      <Printer className="h-4 w-4" /><span>生成 PDF</span>
+                    </button>
+                    <button onClick={() => setIsAdmin(false)} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold bg-slate-200 text-slate-700 hover:bg-slate-300">
+                      <Unlock className="h-4 w-4" /><span>登出後台</span>
+                    </button>
+                  </>
+                ) : (
+                  <button onClick={() => setIsLoginModalOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs sm:text-sm font-bold bg-slate-800 text-white hover:bg-slate-700 shadow-sm">
+                    <Lock className="h-4 w-4" /><span>後台登入 (Admin)</span>
+                  </button>
+                )}
               </div>
             </div>
           </header>
 
-          <main className="max-w-[1400px] mx-auto px-4 lg:px-8 py-6 space-y-6">
+          <main className="no-print max-w-[1400px] mx-auto px-4 lg:px-8 py-6 space-y-6">
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
-              <div className={`p-4 rounded-xl border flex items-center gap-3 ${viewMode === 'control' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
+              <div className={`p-3.5 rounded-xl border flex items-center gap-3 ${viewMode === 'control' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
                 <div className={`p-2.5 rounded-lg shrink-0 ${viewMode === 'control' ? 'bg-blue-900/50 text-blue-400' : 'bg-blue-50 text-blue-600'}`}><Globe className="h-5 w-5" /></div>
-                <div><p className={`text-xs font-medium ${viewMode === 'control' ? 'text-slate-400' : 'text-slate-500'}`}>國家</p><p className="text-lg font-bold">{stats.totalCountries}</p></div>
+                <div><p className={`text-xs font-medium ${viewMode === 'control' ? 'text-slate-400' : 'text-slate-500'}`}>接待國家</p><p className="text-lg font-bold">{stats.totalCountries}</p></div>
               </div>
-              <div className={`p-4 rounded-xl border flex items-center gap-3 ${viewMode === 'control' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
+              <div className={`p-3.5 rounded-xl border flex items-center gap-3 ${viewMode === 'control' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
                 <div className={`p-2.5 rounded-lg shrink-0 ${viewMode === 'control' ? 'bg-indigo-900/50 text-indigo-400' : 'bg-indigo-50 text-indigo-600'}`}><Briefcase className="h-5 w-5" /></div>
-                <div><p className={`text-xs font-medium ${viewMode === 'control' ? 'text-slate-400' : 'text-slate-500'}`}>行程</p><p className="text-lg font-bold">{stats.totalTeams}</p></div>
+                <div><p className={`text-xs font-medium ${viewMode === 'control' ? 'text-slate-400' : 'text-slate-500'}`}>總行程數</p><p className="text-lg font-bold">{stats.totalTeams}</p></div>
               </div>
-              <div className={`p-4 rounded-xl border flex items-center gap-3 ${viewMode === 'control' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
+              <div className={`p-3.5 rounded-xl border flex items-center gap-3 ${viewMode === 'control' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
                 <div className={`p-2.5 rounded-lg shrink-0 ${viewMode === 'control' ? 'bg-violet-900/50 text-violet-400' : 'bg-violet-50 text-violet-600'}`}><Users className="h-5 w-5" /></div>
-                <div><p className={`text-xs font-medium ${viewMode === 'control' ? 'text-slate-400' : 'text-slate-500'}`}>人數</p><p className="text-lg font-bold">{stats.totalPeople}</p></div>
+                <div><p className={`text-xs font-medium ${viewMode === 'control' ? 'text-slate-400' : 'text-slate-500'}`}>總人數</p><p className="text-lg font-bold">{stats.totalPeople}</p></div>
               </div>
-              <div className={`p-4 rounded-xl border flex items-center gap-3 ${viewMode === 'control' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
+              <div className={`p-3.5 rounded-xl border flex items-center gap-3 ${viewMode === 'control' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
                 <div className={`p-2.5 rounded-lg shrink-0 ${viewMode === 'control' ? 'bg-amber-900/50 text-amber-400' : 'bg-amber-50 text-amber-600'}`}><Clock className="h-5 w-5" /></div>
                 <div><p className={`text-xs font-medium ${viewMode === 'control' ? 'text-slate-400' : 'text-slate-500'}`}>今日抵港</p><p className="text-lg font-bold text-amber-500">{stats.todayArrivals}</p></div>
               </div>
-              <div className={`p-4 rounded-xl border flex items-center gap-3 col-span-2 md:col-span-1 ${viewMode === 'control' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
+              <div className={`p-3.5 rounded-xl border flex items-center gap-3 col-span-2 md:col-span-1 ${viewMode === 'control' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
                 <div className={`p-2.5 rounded-lg shrink-0 ${viewMode === 'control' ? 'bg-emerald-900/50 text-emerald-400' : 'bg-emerald-50 text-emerald-600'}`}><PlaneLanding className="h-5 w-5" /></div>
                 <div><p className={`text-xs font-medium ${viewMode === 'control' ? 'text-slate-400' : 'text-slate-500'}`}>即將抵港</p><p className={`text-lg font-bold ${viewMode === 'control' ? 'text-emerald-400' : 'text-emerald-600'}`}>{stats.upcomingArrivals}</p></div>
               </div>
             </div>
+
+            {delegations.length === 0 && (
+              <div className={`${viewMode === 'control' ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-blue-50/70 border-blue-200 text-slate-700'} border rounded-xl p-6 flex flex-col sm:flex-row items-center justify-between gap-4`}>
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-blue-600 text-white rounded-xl"><ShieldCheck className="h-6 w-6" /></div>
+                  <div>
+                    <h3 className="font-bold text-base">系統目前已清空所有預設資料</h3>
+                    <p className="text-xs sm:text-sm opacity-80">
+                      {isAdmin 
+                        ? '您已登入後台管理員模式！請點擊上方「新增資料」按鈕開始建立代表團行程。' 
+                        : '請點擊右上角「後台登入 (Admin)」輸入密碼解鎖後台管理權限。'}
+                    </p>
+                  </div>
+                </div>
+                {isAdmin ? (
+                  <button onClick={openAddModal} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold shrink-0 flex items-center gap-1.5 shadow-sm">
+                    <Plus className="h-4 w-4" /> 立即新增第一筆資料
+                  </button>
+                ) : (
+                  <button onClick={() => setIsLoginModalOpen(true)} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-sm font-bold shrink-0 flex items-center gap-1.5 shadow-sm">
+                    <Lock className="h-4 w-4" /> 後台登入
+                  </button>
+                )}
+              </div>
+            )}
 
             {viewMode === 'calendar' && renderCalendar()}
 
             {viewMode === 'list' && (
               <>
                 <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 flex flex-col sm:flex-row justify-between items-center gap-4">
-                  <h2 className="text-lg font-semibold text-slate-800 flex items-center gap-2"><List className="h-5 w-5 text-slate-500" /> 接待管理列表</h2>
+                  <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                    <List className="h-5 w-5 text-blue-600" /> 接待管理列表
+                  </h2>
                   <div className="relative w-full sm:w-72">
                     <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <input type="text" placeholder="搜尋國家或聯絡人..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500" />
+                    <input type="text" placeholder="搜尋國家、聯絡人或班次..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500" />
                   </div>
                 </div>
 
-                <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden divide-y divide-slate-200">
-                  {groupedDelegations.map((group) => (
-                    <div key={group.country} className="flex flex-col">
-                      <button onClick={() => toggleCountryExpanded(group.country)} className="flex items-center justify-between p-4 hover:bg-slate-50 w-full text-left">
-                        <div className="flex items-center gap-3">
-                          <div className="text-2xl">{getFlag(group.country)}</div>
-                          <div>
-                            <h3 className="text-lg font-bold text-slate-800">{group.country}</h3>
-                            <p className="text-sm text-slate-500">共 {group.items.length} 轉行程 • 總人數 {group.totalPeople} 人</p>
-                          </div>
-                        </div>
-                        {expandedCountries.has(group.country) ? <ChevronDown className="h-5 w-5 text-slate-400" /> : <ChevronRight className="h-5 w-5 text-slate-400" />}
-                      </button>
+                <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+                  {groupedDelegations.length > 0 ? (
+                    <div className="divide-y divide-slate-200">
+                      {groupedDelegations.map((group) => (
+                        <div key={group.country} className="flex flex-col">
+                          <button onClick={() => toggleCountryExpanded(group.country)} className="flex items-center justify-between p-4 hover:bg-slate-50 w-full text-left">
+                            <div className="flex items-center gap-3">
+                              <div className="text-2xl">{getFlag(group.country)}</div>
+                              <div>
+                                <h3 className="text-lg font-bold text-slate-800">{group.country}</h3>
+                                <p className="text-sm text-slate-500">共 {group.items.length} 轉行程 • 總人數 {group.totalPeople} 人</p>
+                              </div>
+                            </div>
+                            {expandedCountries.has(group.country) ? <ChevronDown className="h-5 w-5 text-slate-400" /> : <ChevronRight className="h-5 w-5 text-slate-400" />}
+                          </button>
 
-                      {expandedCountries.has(group.country) && (
-                        <div className="px-4 pb-4 overflow-x-auto">
-                          <table className="w-full text-left text-sm whitespace-nowrap border border-slate-200 rounded-lg">
-                            <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-medium">
-                              <tr>
-                                <th className="px-4 py-3">行程日期</th>
-                                <th className="px-4 py-3">聯絡人 (人數)</th>
-                                <th className="px-4 py-3 min-w-[350px]">接待進度 (點擊打卡)</th>
-                                <th className="px-4 py-3 text-right">操作</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-200 bg-white">
-                              {group.items.map((team) => (
-                                <tr key={team.id} className="hover:bg-slate-50/50">
-                                  <td className="px-4 py-3">
-                                    <div className="flex flex-col gap-1 text-xs">
-                                      <div className="flex items-center gap-1.5 font-medium text-slate-700">
-                                        <PlaneLanding className="h-3.5 w-3.5 text-blue-500" /> <span>{team.arrivalDate}</span>
-                                      </div>
-                                      <div className="flex items-center gap-1 ml-5">
-                                        {team.delayTime ? (
-                                          <><span className="line-through text-slate-400">{team.flightTime}</span><span className="text-red-500 font-bold flex items-center gap-0.5"><AlertTriangle className="h-3 w-3" /> {team.delayTime}</span></>
-                                        ) : (<span className="text-blue-600 font-semibold">{team.flightTime}</span>)}
-                                      </div>
-                                    </div>
-                                  </td>
-                                  <td className="px-4 py-3">
-                                    <div className="font-semibold text-slate-800">{team.contactPerson}</div>
-                                    <div className="text-xs text-slate-500">同行 {team.accompanyingCount} 人</div>
-                                  </td>
-                                  <td className="px-4 py-3">
-                                    <div className="flex flex-wrap items-center gap-3 sm:gap-4">
-                                      {Object.entries({ arrived: '到港', pickedUp: '接機', atHotel: '到酒店', gotPass: '入場證', gotSouvenir: '記念品' }).map(([key, label]) => (
-                                        <label key={key} className="flex items-center gap-1.5 cursor-pointer group">
-                                          <input type="checkbox" checked={team.status[key] || false} onChange={() => handleStatusClick(team.id, key, team.status[key], label)} className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer" />
-                                          <span className={`text-xs font-medium ${team.status[key] ? 'text-blue-700' : 'text-slate-500 group-hover:text-slate-700'}`}>{label}</span>
-                                        </label>
-                                      ))}
-                                    </div>
-                                  </td>
-                                  <td className="px-4 py-3 text-right">
-                                    <div className="flex items-center justify-end gap-2">
-                                      <button onClick={() => openEditModal(team)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-md"><Edit className="h-4 w-4" /></button>
-                                      <button onClick={() => handleDelete(team.id)} className="p-1.5 text-red-600 hover:bg-red-50 rounded-md"><Trash2 className="h-4 w-4" /></button>
-                                    </div>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
+                          {expandedCountries.has(group.country) && (
+                            <div className="px-4 pb-4 overflow-x-auto">
+                              <table className="w-full text-left text-sm whitespace-nowrap border border-slate-200 rounded-lg">
+                                <thead className="bg-slate-100 border-b border-slate-200 text-slate-700 font-bold">
+                                  <tr>
+                                    <th className="px-4 py-3">抵港方式</th>
+                                    <th className="px-4 py-3">抵港 / 離港日期及班次</th>
+                                    <th className="px-4 py-3">聯絡人 (同行人數)</th>
+                                    <th className="px-4 py-3">入住酒店</th>
+                                    <th className="px-4 py-3 min-w-[460px]">接待進度 (點擊打卡 / 顯示完成時間)</th>
+                                    {isAdmin && <th className="px-4 py-3 text-right">後台操作</th>}
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-200 bg-white">
+                                  {group.items.map((team) => {
+                                    const isLand = team.arrivalMode && team.arrivalMode.includes('陸路');
+                                    return (
+                                      <tr key={team.id} className="hover:bg-slate-50/70">
+                                        <td className="px-4 py-3">
+                                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border ${isLand ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-blue-50 text-blue-700 border-blue-200'}`}>
+                                            {isLand ? <Bus className="h-3.5 w-3.5" /> : <PlaneLanding className="h-3.5 w-3.5" />}
+                                            {team.arrivalMode || '空路 (飛機)'}
+                                          </span>
+                                        </td>
+                                        <td className="px-4 py-3">
+                                          <div className="flex flex-col gap-1 text-xs">
+                                            <div className="flex items-center gap-1.5 font-bold text-slate-800">
+                                              <span>抵港: {team.arrivalDate}</span>
+                                              <span className="text-blue-600">{team.flightTime}</span>
+                                              {team.flightNumber && <span className="px-1.5 py-0.5 bg-slate-100 text-slate-700 rounded border border-slate-200 font-mono">{team.flightNumber}</span>}
+                                            </div>
+                                            {team.departureDate && (
+                                              <div className="text-slate-500 flex items-center gap-1">
+                                                <PlaneTakeoff className="h-3 w-3" /> 離港: {team.departureDate}
+                                              </div>
+                                            )}
+                                          </div>
+                                        </td>
+                                        <td className="px-4 py-3">
+                                          <div className="font-bold text-slate-800">{team.contactPerson}</div>
+                                          <div className="text-xs text-slate-500">同行 {team.accompanyingCount} 人 (共 {1 + Number(team.accompanyingCount)} 人)</div>
+                                        </td>
+                                        <td className="px-4 py-3 font-medium text-slate-700">{team.hotel || '-'}</td>
+                                        <td className="px-4 py-3">
+                                          <div className="flex flex-wrap items-start gap-4">
+                                            {Object.entries(STATUS_LABELS).map(([key, label]) => {
+                                              const checked = team.status?.[key] || false;
+                                              const timestamp = team.statusTimestamps?.[key];
+                                              return (
+                                                <div key={key} className="flex flex-col">
+                                                  <label className="flex items-center gap-1.5 cursor-pointer group">
+                                                    <input 
+                                                      type="checkbox" 
+                                                      checked={checked} 
+                                                      onChange={() => handleStatusClick(team.id, key, checked, label)} 
+                                                      className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer" 
+                                                    />
+                                                    <span className={`text-xs font-bold ${checked ? 'text-blue-700' : 'text-slate-500 group-hover:text-slate-800'}`}>{label}</span>
+                                                  </label>
+                                                  {checked && timestamp && (
+                                                    <span className="text-[10px] text-emerald-600 font-mono mt-0.5 pl-5">
+                                                      🕒 {timestamp}
+                                                    </span>
+                                                  )}
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                        </td>
+                                        {isAdmin && (
+                                          <td className="px-4 py-3 text-right">
+                                            <div className="flex items-center justify-end gap-1.5">
+                                              <button onClick={() => openEditModal(team)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-md"><Edit className="h-4 w-4" /></button>
+                                              <button onClick={() => handleDelete(team.id)} className="p-1.5 text-red-600 hover:bg-red-50 rounded-md"><Trash2 className="h-4 w-4" /></button>
+                                            </div>
+                                          </td>
+                                        )}
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
                         </div>
-                      )}
+                      ))}
                     </div>
-                  ))}
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-sm whitespace-nowrap">
+                        <thead className="bg-slate-100 border-b border-slate-200 text-slate-700 font-bold">
+                          <tr>
+                            <th className="px-4 py-3">國家/地區</th>
+                            <th className="px-4 py-3">抵港方式 (空路 / 陸路)</th>
+                            <th className="px-4 py-3">抵港日期及時間</th>
+                            <th className="px-4 py-3">航班 / 車次編號</th>
+                            <th className="px-4 py-3">離港日期</th>
+                            <th className="px-4 py-3">聯絡人 (同行人數)</th>
+                            <th className="px-4 py-3">入住酒店</th>
+                            <th className="px-4 py-3">接待進度 (到港 / 接機 / 到酒店 / 入場證 / 記念品 / 已離港)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr>
+                            <td colSpan="8" className="px-6 py-12 text-center text-slate-400">
+                              目前尚無資料，所有資料欄位已準備就緒，請登入後台新增代表團行程。
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
               </>
             )}
 
             {viewMode === 'control' && (
               <div className="bg-slate-900 rounded-2xl shadow-2xl border border-slate-800 overflow-x-auto">
-                <table className="w-full text-left whitespace-nowrap min-w-[800px]">
-                  <thead className="bg-slate-950 border-b border-slate-800 text-slate-400 font-medium text-sm">
+                <table className="w-full text-left whitespace-nowrap min-w-[900px]">
+                  <thead className="bg-slate-950 border-b border-slate-800 text-slate-400 font-bold text-sm">
                     <tr>
                       <th className="px-6 py-4">國家 / 代表團</th>
-                      <th className="px-6 py-4">抵港及住宿</th>
-                      <th className="px-6 py-4">即時接待狀態</th>
+                      <th className="px-6 py-4">抵港方式、時間及酒店</th>
+                      <th className="px-6 py-4">即時接待狀態 (含打卡時間紀錄)</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800">
-                    {delegations.sort((a, b) => new Date(a.arrivalDate) - new Date(b.arrivalDate)).map((team) => (
-                      <tr key={team.id} className="hover:bg-slate-800/50 transition-colors">
-                        <td className="px-6 py-6 align-top">
-                          <div className="text-2xl font-black text-white mb-2">{getFlag(team.country)} {team.country}</div>
-                          <div className="flex flex-col gap-1.5 mt-2">
-                            <div className="flex items-center gap-2 text-slate-300"><UserCheck className="h-4 w-4 text-blue-400" /> {team.contactPerson}</div>
-                            <div className="flex items-center gap-2 text-slate-400"><Users className="h-4 w-4" /> 共 {1 + Number(team.accompanyingCount)} 人</div>
-                          </div>
-                        </td>
-                        <td className="px-6 py-6 align-top">
-                          <div className="space-y-3">
-                            <div className="flex items-center gap-2 text-slate-300">
-                              <PlaneLanding className="h-5 w-5 text-emerald-400" />
-                              <span className="font-bold text-lg">{team.arrivalDate}</span>
-                              {team.flightNumber && <span className="px-2 py-0.5 bg-slate-800 border border-slate-700 text-slate-300 rounded text-sm">{team.flightNumber}</span>}
+                    {delegations.length > 0 ? delegations.sort((a, b) => new Date(a.arrivalDate) - new Date(b.arrivalDate)).map((team) => {
+                      const isLand = team.arrivalMode && team.arrivalMode.includes('陸路');
+                      return (
+                        <tr key={team.id} className="hover:bg-slate-800/50 transition-colors">
+                          <td className="px-6 py-6 align-top">
+                            <div className="text-2xl font-black text-white mb-2">{getFlag(team.country)} {team.country}</div>
+                            <div className="flex flex-col gap-1.5 mt-2">
+                              <div className="flex items-center gap-2 text-slate-300"><UserCheck className="h-4 w-4 text-blue-400" /> {team.contactPerson}</div>
+                              <div className="flex items-center gap-2 text-slate-400"><Users className="h-4 w-4" /> 共 {1 + Number(team.accompanyingCount)} 人 (同行 {team.accompanyingCount} 人)</div>
                             </div>
-                            <div className="flex items-center gap-2 mt-1">
-                              {team.delayTime ? (
-                                <><span className="text-slate-500 line-through text-lg">{team.flightTime}</span><span className="px-2 py-0.5 bg-red-500/20 text-red-400 border border-red-500/30 rounded text-lg font-black flex items-center gap-1"><AlertTriangle className="h-4 w-4" />延誤 {team.delayTime}</span></>
-                              ) : (<span className="text-emerald-400 text-lg font-bold">{team.flightTime}</span>)}
+                          </td>
+                          <td className="px-6 py-6 align-top">
+                            <div className="space-y-2.5">
+                              <div className="flex items-center gap-2 text-slate-200">
+                                {isLand ? <Bus className="h-5 w-5 text-emerald-400" /> : <PlaneLanding className="h-5 w-5 text-sky-400" />}
+                                <span className="px-2 py-0.5 rounded text-xs font-bold bg-slate-800 text-slate-300 border border-slate-700">{team.arrivalMode || '空路 (飛機)'}</span>
+                                <span className="font-bold text-lg">{team.arrivalDate}</span>
+                                <span className="text-emerald-400 text-lg font-bold">{team.flightTime}</span>
+                                {team.flightNumber && <span className="px-2 py-0.5 bg-slate-800 border border-slate-700 text-slate-300 rounded text-sm font-mono">{team.flightNumber}</span>}
+                              </div>
+                              <div className="flex items-center gap-2 text-slate-300"><Building className="h-4 w-4 text-amber-400" /> {team.hotel || '未填寫酒店'}</div>
                             </div>
-                            <div className="flex items-center gap-2 text-slate-300 mt-2"><Building className="h-4 w-4 text-amber-400" /> {team.hotel}</div>
-                          </div>
-                        </td>
-                        <td className="px-6 py-6 align-middle">
-                          <div className="flex flex-wrap items-center gap-3">
-                            {renderStatusBadge(team.status?.arrived, '抵達香港')}
-                            {renderStatusBadge(team.status?.pickedUp, '專車接機')}
-                            {renderStatusBadge(team.status?.atHotel, '已達酒店')}
-                            {renderStatusBadge(team.status?.gotPass, '領取入場證')}
-                            {renderStatusBadge(team.status?.gotSouvenir, '派發紀念品')}
-                          </div>
+                          </td>
+                          <td className="px-6 py-6 align-middle">
+                            <div className="flex flex-wrap items-center gap-3">
+                              {Object.entries(STATUS_LABELS).map(([key, label]) => (
+                                <div key={key}>
+                                  {renderStatusBadge(team.status?.[key], team.statusTimestamps?.[key], label)}
+                                </div>
+                              ))}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    }) : (
+                      <tr>
+                        <td colSpan="3" className="px-6 py-16 text-center text-slate-500 text-lg">
+                          目前尚無代表團資料
                         </td>
                       </tr>
-                    ))}
+                    )}
                   </tbody>
                 </table>
               </div>
             )}
           </main>
 
+          <div className="hidden print-only p-6 bg-white text-black">
+            <div className="border-2 border-slate-900 p-4 mb-6">
+              <div className="flex justify-between items-start border-b border-slate-300 pb-3 mb-3">
+                <div>
+                  <h1 className="text-2xl font-black">接待系統 — 進度核對報表</h1>
+                  <p className="text-xs text-slate-600 mt-1">此文件由接待系統後台直接輸出。</p>
+                </div>
+                <div className="text-right text-xs font-mono">
+                  <div><strong>輸出時間：</strong>{reportTime || getCurrentTimeStr()}</div>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-4 text-xs font-bold">
+                <div>接待國家總數：{stats.totalCountries} 個</div>
+                <div>總接待批次：{stats.totalTeams} 隊</div>
+                <div>總接待人數：{stats.totalPeople} 人</div>
+              </div>
+            </div>
+
+            <table className="w-full border-collapse border border-slate-400 text-[11px]">
+              <thead>
+                <tr className="bg-slate-200 text-slate-900">
+                  <th className="border border-slate-400 p-1.5">國家/地區</th>
+                  <th className="border border-slate-400 p-1.5">抵港方式</th>
+                  <th className="border border-slate-400 p-1.5">抵港日期與時間</th>
+                  <th className="border border-slate-400 p-1.5">班次/口岸</th>
+                  <th className="border border-slate-400 p-1.5">離港日期</th>
+                  <th className="border border-slate-400 p-1.5">聯絡人 (總人數)</th>
+                  <th className="border border-slate-400 p-1.5">入住酒店</th>
+                  <th className="border border-slate-400 p-1.5">1.到港</th>
+                  <th className="border border-slate-400 p-1.5">2.接機/車</th>
+                  <th className="border border-slate-400 p-1.5">3.到酒店</th>
+                  <th className="border border-slate-400 p-1.5">4.入場證</th>
+                  <th className="border border-slate-400 p-1.5">5.記念品</th>
+                  <th className="border border-slate-400 p-1.5">6.已離港</th>
+                </tr>
+              </thead>
+              <tbody>
+                {delegations.map((d) => (
+                  <tr key={d.id}>
+                    <td className="border border-slate-400 p-1.5 font-bold">{d.country}</td>
+                    <td className="border border-slate-400 p-1.5 text-center">{d.arrivalMode || '空路 (飛機)'}</td>
+                    <td className="border border-slate-400 p-1.5 text-center">{d.arrivalDate} {d.flightTime}</td>
+                    <td className="border border-slate-400 p-1.5 text-center">{d.flightNumber || '-'}</td>
+                    <td className="border border-slate-400 p-1.5 text-center">{d.departureDate || '-'}</td>
+                    <td className="border border-slate-400 p-1.5">{d.contactPerson} ({1 + Number(d.accompanyingCount)}人)</td>
+                    <td className="border border-slate-400 p-1.5">{d.hotel || '-'}</td>
+                    {['arrived', 'pickedUp', 'atHotel', 'gotPass', 'gotSouvenir', 'departed'].map(k => (
+                      <td key={k} className="border border-slate-400 p-1.5 text-center">
+                        {d.status?.[k] ? (
+                          <div>
+                            <span className="font-bold">✓ 完成</span>
+                            <div className="text-[9px] text-slate-600">{d.statusTimestamps?.[k] || ''}</div>
+                          </div>
+                        ) : '—'}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* 後台登入密碼視窗 Modal (無任何密碼明文提示) */}
+          {isLoginModalOpen && (
+            <div className="no-print fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+                <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-900 text-white">
+                  <h3 className="text-lg font-bold flex items-center gap-2"><Lock className="h-5 w-5 text-amber-400" /> 後台管理員登入</h3>
+                  <button onClick={() => { setIsLoginModalOpen(false); setLoginError(''); }} className="text-slate-400 hover:text-white"><X className="h-5 w-5" /></button>
+                </div>
+                <form onSubmit={handleAdminLogin} className="p-6 space-y-4">
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1.5">請輸入管理員密碼</label>
+                    <input 
+                      type="password" 
+                      value={passwordInput} 
+                      onChange={(e) => setPasswordInput(e.target.value)} 
+                      placeholder="請輸入密碼..."
+                      autoFocus
+                      className="w-full p-2.5 border border-slate-300 rounded-lg text-slate-900 outline-none focus:ring-2 focus:ring-blue-600 font-mono"
+                    />
+                    {loginError && <p className="text-xs text-red-600 font-bold mt-1.5">{loginError}</p>}
+                  </div>
+                  <div className="flex justify-end gap-2 pt-2">
+                    <button type="button" onClick={() => { setIsLoginModalOpen(false); setLoginError(''); }} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg text-sm font-bold">取消</button>
+                    <button type="submit" className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold">登入後台</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* 新增/編輯代表團資料 Modal */}
           {isModalOpen && (
-            <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
-              <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="no-print fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
+              <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto text-slate-800">
                 <div className="flex justify-between items-center p-6 border-b border-slate-200">
-                  <h2 className="text-xl font-bold text-slate-800">{editingId ? '編輯' : '新增'}</h2>
+                  <h2 className="text-xl font-bold">{editingId ? '編輯代表團資料' : '新增代表團資料'}</h2>
                   <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600"><X className="h-6 w-6" /></button>
                 </div>
                 <div className="p-6 space-y-4">
+                  {formError && (
+                    <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm font-bold flex items-center gap-2">
+                      <AlertTriangle className="h-4 w-4 shrink-0" />
+                      <span>{formError}</span>
+                    </div>
+                  )}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-1"><label className="text-sm font-medium">國家/地區</label><input type="text" value={formData.country} onChange={e => setFormData({...formData, country: e.target.value})} className="w-full p-2 border border-slate-300 rounded-lg outline-none"/></div>
-                    <div className="space-y-1"><label className="text-sm font-medium">主要聯絡人</label><input type="text" value={formData.contactPerson} onChange={e => setFormData({...formData, contactPerson: e.target.value})} className="w-full p-2 border border-slate-300 rounded-lg outline-none"/></div>
-                    <div className="space-y-1"><label className="text-sm font-medium">抵港日期</label><input type="date" value={formData.arrivalDate} onChange={e => setFormData({...formData, arrivalDate: e.target.value})} className="w-full p-2 border border-slate-300 rounded-lg outline-none"/></div>
-                    <div className="space-y-1"><label className="text-sm font-medium">航班編號</label><input type="text" value={formData.flightNumber || ''} onChange={e => setFormData({...formData, flightNumber: e.target.value})} className="w-full p-2 border border-slate-300 rounded-lg outline-none uppercase"/></div>
-                    <div className="space-y-1"><label className="text-sm font-medium">航班時間</label><input type="time" value={formData.flightTime || ''} onChange={e => setFormData({...formData, flightTime: e.target.value})} className="w-full p-2 border border-slate-300 rounded-lg outline-none"/></div>
-                    <div className="space-y-1"><label className="text-sm font-medium">同行人數</label><input type="number" min="0" value={formData.accompanyingCount} onChange={e => setFormData({...formData, accompanyingCount: e.target.value})} className="w-full p-2 border border-slate-300 rounded-lg outline-none"/></div>
-                    <div className="space-y-1"><label className="text-sm font-medium">入住酒店</label><input type="text" value={formData.hotel} onChange={e => setFormData({...formData, hotel: e.target.value})} className="w-full p-2 border border-slate-300 rounded-lg outline-none"/></div>
+                    <div className="space-y-1">
+                      <label className="text-sm font-bold text-slate-700">國家 / 地區 *</label>
+                      <input type="text" placeholder="例如：美國 (USA)" value={formData.country} onChange={e => setFormData({...formData, country: e.target.value})} className="w-full p-2.5 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"/>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-sm font-bold text-slate-700">抵港方式 (空路 / 陸路) *</label>
+                      <select value={formData.arrivalMode || '空路 (飛機)'} onChange={e => setFormData({...formData, arrivalMode: e.target.value})} className="w-full p-2.5 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 bg-white font-semibold">
+                        <option value="空路 (飛機)">✈️ 空路 (坐飛機抵港)</option>
+                        <option value="陸路 (高鐵/口岸)">🚄 陸路 (經陸路口岸/高鐵抵港)</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-sm font-bold text-slate-700">抵港日期 * (月曆顯示 11/22 - 12/12)</label>
+                      <input type="date" value={formData.arrivalDate} onChange={e => setFormData({...formData, arrivalDate: e.target.value})} className="w-full p-2.5 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"/>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-sm font-bold text-slate-700">預計抵港時間</label>
+                      <input type="time" value={formData.flightTime || ''} onChange={e => setFormData({...formData, flightTime: e.target.value})} className="w-full p-2.5 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"/>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-sm font-bold text-slate-700">航班編號 / 陸路班次或口岸</label>
+                      <input type="text" placeholder="例如：CX881 / 高鐵 G6501 / 深圳灣" value={formData.flightNumber || ''} onChange={e => setFormData({...formData, flightNumber: e.target.value})} className="w-full p-2.5 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 uppercase"/>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-sm font-bold text-slate-700">離港日期</label>
+                      <input type="date" value={formData.departureDate} onChange={e => setFormData({...formData, departureDate: e.target.value})} className="w-full p-2.5 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"/>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-sm font-bold text-slate-700">主要聯絡人 (稱呼/職銜，選填)</label>
+                      <input type="text" placeholder="例如：Director Smith (可留空)" value={formData.contactPerson} onChange={e => setFormData({...formData, contactPerson: e.target.value})} className="w-full p-2.5 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"/>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-sm font-bold text-slate-700">同行人數 (不含聯絡人)</label>
+                      <input type="number" min="0" value={formData.accompanyingCount} onChange={e => setFormData({...formData, accompanyingCount: e.target.value})} className="w-full p-2.5 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"/>
+                    </div>
+                    <div className="space-y-1 md:col-span-2">
+                      <label className="text-sm font-bold text-slate-700">入住酒店</label>
+                      <input type="text" placeholder="請輸入酒店名稱" value={formData.hotel} onChange={e => setFormData({...formData, hotel: e.target.value})} className="w-full p-2.5 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"/>
+                    </div>
                   </div>
                 </div>
                 <div className="flex justify-end gap-3 p-6 border-t border-slate-200 bg-slate-50">
-                  <button onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-200 rounded-lg font-medium">取消</button>
-                  <button onClick={handleSave} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium">儲存</button>
+                  <button onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-200 rounded-lg font-bold">取消</button>
+                  <button onClick={handleSave} className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold">儲存資料</button>
                 </div>
               </div>
             </div>
           )}
 
           {quickViewData && (
-            <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col">
+            <div className="no-print fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 text-slate-800">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
                 <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-blue-50">
-                  <h3 className="text-xl font-bold text-blue-900 flex items-center gap-2">{getFlag(quickViewData.country)} {quickViewData.country}</h3>
+                  <div>
+                    <h3 className="text-xl font-bold text-blue-900 flex items-center gap-2">{getFlag(quickViewData.country)} {quickViewData.country}</h3>
+                    <p className="text-xs text-blue-700 mt-0.5">{quickViewData.arrivalMode || '空路 (飛機)'} • {quickViewData.arrivalDate} {quickViewData.flightTime}</p>
+                  </div>
                   <button onClick={() => setQuickViewData(null)} className="p-1 hover:bg-blue-100 rounded-md text-blue-700"><X className="h-5 w-5" /></button>
                 </div>
-                <div className="p-6 space-y-6">
+                <div className="p-6 space-y-5">
+                  <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs space-y-1.5">
+                    <div><strong>聯絡人：</strong>{quickViewData.contactPerson} (共 {1 + Number(quickViewData.accompanyingCount)} 人)</div>
+                    <div><strong>班次/口岸：</strong>{quickViewData.flightNumber || '未填寫'}</div>
+                    <div><strong>入住酒店：</strong>{quickViewData.hotel || '未填寫'}</div>
+                  </div>
                   <div>
-                    <h4 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2"><Clock className="h-4 w-4 text-blue-600" /> 快速更新進度</h4>
-                    <div className="grid grid-cols-2 gap-3">
-                      {Object.entries({ arrived: '抵達', pickedUp: '接機', atHotel: '到酒店', gotPass: '入場證', gotSouvenir: '紀念品' }).map(([key, label]) => (
-                        <label key={key} className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${quickViewData.status?.[key] ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-slate-200'}`}>
-                          <input type="checkbox" checked={quickViewData.status?.[key] || false} onChange={() => handleStatusClick(quickViewData.id, key, quickViewData.status?.[key], label)} className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500" /> 
-                          <span className={`text-sm font-medium ${quickViewData.status?.[key] ? 'text-emerald-700' : 'text-slate-700'}`}>{label}</span>
-                        </label>
-                      ))}
+                    <h4 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2"><Clock className="h-4 w-4 text-blue-600" /> 負責接待單位 — 點擊打卡更新進度</h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      {Object.entries(STATUS_LABELS).map(([key, label]) => {
+                        const checked = quickViewData.status?.[key] || false;
+                        const ts = quickViewData.statusTimestamps?.[key];
+                        return (
+                          <label key={key} className={`flex flex-col p-3 rounded-xl border cursor-pointer transition-all ${checked ? 'bg-emerald-50 border-emerald-300' : 'bg-white border-slate-200 hover:border-blue-300'}`}>
+                            <div className="flex items-center gap-2.5">
+                              <input type="checkbox" checked={checked} onChange={() => handleStatusClick(quickViewData.id, key, checked, label)} className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500" /> 
+                              <span className={`text-sm font-bold ${checked ? 'text-emerald-800' : 'text-slate-700'}`}>{label}</span>
+                            </div>
+                            {checked && ts && (
+                              <span className="text-[10px] text-emerald-600 font-mono mt-1 pl-6">
+                                🕒 {ts}
+                              </span>
+                            )}
+                          </label>
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
-                <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-end items-center">
-                  <button onClick={() => setQuickViewData(null)} className="px-5 py-2 bg-slate-800 text-white text-sm font-bold rounded-lg hover:bg-slate-700">關閉</button>
+                <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-between items-center">
+                  {isAdmin ? (
+                    <button onClick={() => { const d = quickViewData; setQuickViewData(null); openEditModal(d); }} className="text-xs font-bold text-blue-600 hover:underline flex items-center gap-1">
+                      <Edit className="h-3.5 w-3.5" /> 後台編輯此筆資料
+                    </button>
+                  ) : <span />}
+                  <button onClick={() => setQuickViewData(null)} className="px-5 py-2 bg-slate-800 text-white text-sm font-bold rounded-lg hover:bg-slate-700">完成並關閉</button>
                 </div>
               </div>
             </div>
           )}
 
           {confirmModal.isOpen && (
-            <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[60] backdrop-blur-sm">
+            <div className="no-print fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[60] backdrop-blur-sm text-slate-800">
               <div className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden p-6">
                 <div className="w-12 h-12 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center mb-4 mx-auto"><AlertTriangle className="h-6 w-6" /></div>
-                <h3 className="text-lg font-bold text-center mb-2">確認資料</h3>
-                <p className="text-center text-slate-600 text-sm mb-6">即將把「{confirmModal.label}」狀態更改為：<br/><span className={`inline-block mt-2 px-3 py-1 rounded-full text-sm font-bold ${!confirmModal.currentStatus ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>{!confirmModal.currentStatus ? '✅ 完成' : '取消'}</span></p>
+                <h3 className="text-lg font-bold text-center mb-2">請確認資料是否正確</h3>
+                <p className="text-center text-slate-600 text-sm mb-6">
+                  即將把「{confirmModal.label}」狀態更改為：<br/>
+                  <span className={`inline-block mt-2 px-3 py-1 rounded-full text-sm font-bold ${!confirmModal.currentStatus ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
+                    {!confirmModal.currentStatus ? '✅ 已完成 (系統將自動記錄目前時間)' : '取消完成狀態'}
+                  </span>
+                </p>
                 <div className="flex gap-3">
-                  <button onClick={() => setConfirmModal({...confirmModal, isOpen: false})} className="flex-1 py-2 bg-slate-100 text-slate-700 rounded-lg font-medium">取消</button>
-                  <button onClick={executeStatusUpdate} className="flex-1 py-2 bg-blue-600 text-white rounded-lg font-medium">確認</button>
+                  <button onClick={() => setConfirmModal({...confirmModal, isOpen: false})} className="flex-1 py-2 bg-slate-100 text-slate-700 rounded-lg font-bold">返回取消</button>
+                  <button onClick={executeStatusUpdate} className="flex-1 py-2 bg-blue-600 text-white rounded-lg font-bold">確認更新</button>
                 </div>
               </div>
             </div>
