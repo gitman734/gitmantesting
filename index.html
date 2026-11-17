@@ -1,184 +1,596 @@
 <!DOCTYPE html>
 <html lang="zh-HK">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>小朋友寫字姿勢監察 App</title>
-    <!-- 引入 Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- 引入 Google MediaPipe Pose 機器學習函式庫 -->
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>接待系統</title>
+  
+  <!-- 引入 Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- 引入 Babel 讓瀏覽器直接編譯 React -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- 新增：Import Map 解決 bare specifier 錯誤 -->
+  <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@18.2.0",
+        "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+        "lucide-react": "https://esm.sh/lucide-react@0.294.0?external=react"
+      }
+    }
+  </script>
+
+  <style>
+    body { overflow-x: hidden; }
+  </style>
 </head>
-<body class="bg-slate-900 text-white min-h-screen flex flex-col items-center justify-between p-4">
+<body class="bg-slate-50">
+  <div id="root"></div>
 
-    <!-- 頂部標題與狀態列 -->
-    <header class="w-full max-w-md text-center py-2">
-        <h1 class="text-xl font-bold tracking-wide">👀 寫字姿勢守護眼</h1>
-        <div id="status-badge" class="mt-2 py-2 px-4 rounded-full text-sm font-semibold transition-all bg-emerald-600 text-white shadow-lg">
-            請點擊下方按鈕啟動相機
-        </div>
-    </header>
+  <script type="text/babel" data-type="module">
+    import React, { useState, useEffect, useMemo } from 'react';
+    import { createRoot } from 'react-dom/client';
+    import * as Lucide from 'lucide-react';
+    
+    // Firebase imports
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, doc, setDoc, deleteDoc, onSnapshot, collection } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-    <!-- 鏡頭預覽與骨架視覺化區域 -->
-    <main class="relative w-full max-w-md aspect-[3/4] bg-black rounded-2xl overflow-hidden shadow-2xl border-4 border-slate-700 flex items-center justify-center">
-        <!-- 視訊串流 -->
-        <video id="webcam" class="absolute inset-0 w-full h-full object-cover -scale-x-100" playsinline></video>
-        <!-- 繪製骨架的 Canvas -->
-        <canvas id="output_canvas" class="absolute inset-0 w-full h-full object-cover -scale-x-100"></canvas>
-        
-        <!-- 初始提示遮罩 -->
-        <div id="start-overlay" class="absolute inset-0 bg-slate-900/90 flex flex-col items-center justify-center p-6 text-center z-10">
-            <div class="text-5xl mb-4">📸</div>
-            <p class="text-slate-300 text-sm mb-6">將 iPad / 平板固定在小朋友正前方，確保鏡頭能拍到頭部與肩膀。</p>
-            <button id="start-btn" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-8 rounded-xl shadow-lg transition-transform active:scale-95 text-lg">
-                啟動監察相機
-            </button>
-        </div>
-    </main>
+    const { 
+      Globe, Users, PlaneLanding, Search, Plus, X, Building, 
+      CalendarDays, PlaneTakeoff, UserCheck, Edit, Trash2, 
+      ChevronDown, ChevronRight, Briefcase, Clock, MonitorPlay, List,
+      Calendar, ChevronLeft, CheckCircle2, Circle, ExternalLink, RefreshCw, AlertTriangle, Cloud, CloudOff
+    } = Lucide;
 
-    <!-- 底部控制面板 -->
-    <footer class="w-full max-w-md mt-4 bg-slate-800 p-4 rounded-2xl shadow-inner flex flex-col gap-3">
-        <div class="flex justify-between items-center text-sm text-slate-300">
-            <span>不合格持續時間: <strong id="timer-val" class="text-amber-400">0 秒</strong></span>
-            <button id="test-audio" class="text-xs bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-lg text-slate-200">測試語音提醒</button>
-        </div>
-        <div class="text-xs text-slate-400 text-center">
-            💡 提示：當頭部過度靠近桌面或寒背超過 3 秒，系統會自動發出語音警告。
-        </div>
-    </footer>
+    // ==========================================
+    // ☁️ 雲端資料庫設定區
+    // ==========================================
+    const isLocalPreview = typeof __firebase_config !== 'undefined';
+    
+    // ⚠️ 未來如果你想加入雲端同步，請將 Firebase 的設定填入下方的雙引號中
+    // 目前留空的話，系統會自動以「單機版」運行，確保網站在 Vercel 上不會出錯。
+    const MY_FIREBASE_CONFIG = {
+      apiKey: "",
+      authDomain: "",
+      projectId: "",
+      storageBucket: "",
+      messagingSenderId: "",
+      appId: ""
+    };
 
-    <!-- 核心 AI 邏輯與相機控制 Script -->
-    <script>
-        const videoElement = document.getElementById('webcam');
-        const canvasElement = document.getElementById('output_canvas');
-        const canvasCtx = canvasElement.getContext('2d');
-        const statusBadge = document.getElementById('status-badge');
-        const startOverlay = document.getElementById('start-overlay');
-        const startBtn = document.getElementById('start-btn');
-        const timerVal = document.getElementById('timer-val');
-        const testAudioBtn = document.getElementById('test-audio');
+    const hasFirebase = isLocalPreview || MY_FIREBASE_CONFIG.apiKey !== "";
+    
+    let app, auth, db;
+    if (hasFirebase) {
+      const config = isLocalPreview ? JSON.parse(__firebase_config) : MY_FIREBASE_CONFIG;
+      app = initializeApp(config);
+      auth = getAuth(app);
+      db = getFirestore(app);
+    }
 
-        let badPostureSeconds = 0;
-        let alertTimer = null;
-        let isMonitoring = false;
+    const COLLECTION_NAME = 'delegations';
 
-        // 語音提醒函數
-        function speakWarning() {
-            if ('speechSynthesis' in window) {
-                window.speechSynthesis.cancel();
-                const utterance = new SpeechSynthesisUtterance('請坐直個人，不要寒背！');
-                utterance.lang = 'zh-HK';
-                utterance.rate = 1.0;
-                window.speechSynthesis.speak(utterance);
-            }
-        }
+    const getCollectionRef = () => {
+      if (isLocalPreview && typeof __app_id !== 'undefined') {
+        return collection(db, 'artifacts', __app_id, 'public', 'data', COLLECTION_NAME);
+      }
+      return collection(db, COLLECTION_NAME); 
+    };
 
-        testAudioBtn.addEventListener('click', () => {
-            speakWarning();
-        });
+    const getDocRef = (id) => {
+      if (isLocalPreview && typeof __app_id !== 'undefined') {
+        return doc(db, 'artifacts', __app_id, 'public', 'data', COLLECTION_NAME, id.toString());
+      }
+      return doc(db, COLLECTION_NAME, id.toString()); 
+    };
 
-        // 初始化 MediaPipe Pose 模型
-        const pose = new Pose({
-            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
-        });
+    const defaultStatus = { arrived: false, pickedUp: false, atHotel: false, gotPass: false, gotSouvenir: false };
+    const initialDelegations = [
+      { id: 1, country: '美國 (USA)', arrivalDate: '2026-11-17', flightNumber: 'CX881', flightTime: '14:30', delayTime: '16:15', departureDate: '2026-11-21', contactPerson: 'Director S.', accompanyingCount: 2, hotel: '香港瑰麗酒店', status: { ...defaultStatus } },
+      { id: 2, country: '英國 (UK)', arrivalDate: '2026-11-18', flightNumber: 'BA027', flightTime: '09:15', delayTime: null, departureDate: '2026-11-22', contactPerson: 'Rep. Johnson', accompanyingCount: 4, hotel: '香港半島酒店', status: { ...defaultStatus } },
+      { id: 3, country: '加拿大 (CAN)', arrivalDate: '2026-11-17', flightNumber: 'AC015', flightTime: '18:45', delayTime: null, departureDate: '2026-11-20', contactPerson: 'Trade Lead', accompanyingCount: 1, hotel: '香港文華東方酒店', status: { ...defaultStatus, arrived: true, pickedUp: true } },
+      { id: 4, country: '澳洲 (AUS)', arrivalDate: '2026-11-20', flightNumber: 'QF127', flightTime: '11:20', delayTime: null, departureDate: '2026-11-25', contactPerson: 'Consul W.', accompanyingCount: 3, hotel: '香港君悅酒店', status: { ...defaultStatus } },
+      { id: 5, country: '新西蘭 (NZ)', arrivalDate: '2026-11-22', flightNumber: 'NZ081', flightTime: '16:00', delayTime: null, departureDate: '2026-11-26', contactPerson: 'Attaché Lee', accompanyingCount: 0, hotel: '港島香格里拉大酒店', status: { ...defaultStatus } },
+      { id: 6, country: '美國 (USA)', arrivalDate: '2026-11-25', flightNumber: 'UA861', flightTime: '21:30', delayTime: null, departureDate: '2026-11-29', contactPerson: 'Tech Rep D.', accompanyingCount: 1, hotel: '香港瑞吉酒店', status: { ...defaultStatus } }
+    ];
 
-        pose.setOptions({
-            modelComplexity: 1,
-            smoothLandmarks: true,
-            enableSegmentation: false,
-            minDetectionConfidence: 0.5,
-            minTrackingConfidence: 0.5
-        });
+    function App() {
+      const [delegations, setDelegations] = useState(initialDelegations);
+      const [user, setUser] = useState(null);
+      const [isOnline, setIsOnline] = useState(false);
+      const [searchTerm, setSearchTerm] = useState('');
+      const [isModalOpen, setIsModalOpen] = useState(false);
+      const [editingId, setEditingId] = useState(null);
+      const [expandedCountries, setExpandedCountries] = useState(new Set(['美國 (USA)']));
+      const [viewMode, setViewMode] = useState('calendar'); 
+      const [currentDate, setCurrentDate] = useState(new Date(2026, 10, 1)); 
+      const [quickViewData, setQuickViewData] = useState(null);
+      const [isSyncing, setIsSyncing] = useState(false);
+      
+      const [confirmModal, setConfirmModal] = useState({ isOpen: false, delegationId: null, statusKey: null, currentStatus: false, label: '' });
+      const [formData, setFormData] = useState({
+        country: '', arrivalDate: '', flightNumber: '', flightTime: '', departureDate: '', contactPerson: '', accompanyingCount: 0, hotel: ''
+      });
 
-        pose.onResults(onResults);
-
-        function onResults(results) {
-            if (!isMonitoring) return;
-
-            canvasElement.width = videoElement.videoWidth;
-            canvasElement.height = videoElement.videoHeight;
-
-            canvasCtx.save();
-            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
-
-            if (results.poseLandmarks) {
-                const landmarks = results.poseLandmarks;
-                const nose = landmarks[0];
-                const leftShoulder = landmarks[11];
-                const rightShoulder = landmarks[12];
-
-                if (nose && leftShoulder && rightShoulder) {
-                    const shoulderY = (leftShoulder.y + rightShoulder.y) / 2;
-                    const headToShoulderDist = shoulderY - nose.y;
-                    const threshold = 0.12;
-
-                    if (headToShoulderDist < threshold) {
-                        statusBadge.className = "mt-2 py-2 px-4 rounded-full text-sm font-semibold transition-all bg-rose-600 text-white shadow-lg animate-pulse";
-                        statusBadge.innerText = "⚠️ 偵測到寒背或頭部過低！";
-                        
-                        if (!alertTimer) {
-                            alertTimer = setInterval(() => {
-                                badPostureSeconds++;
-                                timerVal.innerText = `${badPostureSeconds} 秒`;
-                                if (badPostureSeconds >= 3) {
-                                    speakWarning();
-                                }
-                            }, 1000);
-                        }
-                    } else {
-                        statusBadge.className = "mt-2 py-2 px-4 rounded-full text-sm font-semibold transition-all bg-emerald-600 text-white shadow-lg";
-                        statusBadge.innerText = "✅ 坐姿標準，繼續保持！";
-                        resetTimer();
-                    }
-                }
+      useEffect(() => {
+        if (!hasFirebase) return;
+        const initAuth = async () => {
+          try {
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+              await signInWithCustomToken(auth, __initial_auth_token);
             } else {
-                statusBadge.className = "mt-2 py-2 px-4 rounded-full text-sm font-semibold transition-all bg-amber-600 text-white shadow-lg";
-                statusBadge.innerText = "🔍 尋找中：請讓小朋友面向鏡頭";
-                resetTimer();
+              await signInAnonymously(auth);
             }
+          } catch (error) {
+            console.error("Auth error:", error);
+          }
+        };
+        initAuth();
+        const unsubscribe = onAuthStateChanged(auth, setUser);
+        return () => unsubscribe();
+      }, []);
 
-            canvasCtx.restore();
-        }
-
-        function resetTimer() {
-            if (alertTimer) {
-                clearInterval(alertTimer);
-                alertTimer = null;
-            }
-            badPostureSeconds = 0;
-            timerVal.innerText = `0 秒`;
-        }
-
-        startBtn.addEventListener('click', async () => {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
-                    audio: false
-                });
-                videoElement.srcObject = stream;
-                await videoElement.play();
-
-                startOverlay.style.display = 'none';
-                isMonitoring = true;
-
-                const camera = new Camera(videoElement, {
-                    onFrame: async () => {
-                        if (isMonitoring) {
-                            await pose.send({ image: videoElement });
-                        }
-                    },
-                    width: 640,
-                    height: 480
-                });
-                camera.start();
-
-            } catch (err) {
-                alert("無法開啟相機，請檢查 Safari 相機權限設定：\n" + err.message);
-                console.error(err);
-            }
+      useEffect(() => {
+        if (!hasFirebase || !user) return;
+        const colRef = getCollectionRef();
+        const unsubscribe = onSnapshot(colRef, (snapshot) => {
+          if (snapshot.empty && !window.__seeded) {
+            window.__seeded = true;
+            initialDelegations.forEach(d => setDoc(getDocRef(d.id), d));
+            return;
+          }
+          const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+          if (data.length > 0) setDelegations(data);
+          setIsOnline(true);
+        }, (error) => {
+          console.error("Firestore sync error:", error);
+          setIsOnline(false);
         });
-    </script>
+        return () => unsubscribe();
+      }, [user]);
+
+      const stats = useMemo(() => {
+        const totalCountries = new Set(delegations.map(d => d.country)).size;
+        const totalPeople = delegations.reduce((sum, d) => sum + 1 + Number(d.accompanyingCount), 0);
+        const todayStr = '2026-11-17'; 
+        let todayArrivals = 0, upcomingArrivals = 0;
+        delegations.forEach(d => {
+          if (d.arrivalDate === todayStr) todayArrivals++;
+          else if (d.arrivalDate > todayStr) upcomingArrivals++;
+        });
+        return { totalCountries, totalTeams: delegations.length, totalPeople, todayArrivals, upcomingArrivals };
+      }, [delegations]);
+
+      const openAddModal = () => { setEditingId(null); setFormData({ country: '', arrivalDate: '', flightNumber: '', flightTime: '', departureDate: '', contactPerson: '', accompanyingCount: 0, hotel: '' }); setIsModalOpen(true); };
+      const openEditModal = (delegation) => { setEditingId(delegation.id); setFormData({ ...delegation }); setIsModalOpen(true); };
+
+      const handleSave = async () => {
+        if (!formData.country || !formData.contactPerson || !formData.arrivalDate) return;
+        const docId = editingId ? editingId.toString() : Date.now().toString();
+        const payload = editingId
+          ? { ...formData, id: docId, status: delegations.find(d => d.id.toString() === docId)?.status || defaultStatus }
+          : { ...formData, id: docId, status: { ...defaultStatus } };
+
+        if (hasFirebase && user) {
+          await setDoc(getDocRef(docId), payload);
+        } else {
+          if (editingId) setDelegations(delegations.map(d => d.id.toString() === docId ? payload : d));
+          else setDelegations([...delegations, payload]);
+        }
+        setIsModalOpen(false);
+        if (quickViewData) setQuickViewData(null);
+      };
+
+      const handleDelete = async (id) => {
+        if (hasFirebase && user) await deleteDoc(getDocRef(id));
+        else setDelegations(delegations.filter(d => d.id !== id));
+      };
+
+      const handleStatusClick = (id, statusKey, currentStatus, label) => {
+        setConfirmModal({ isOpen: true, delegationId: id, statusKey, currentStatus, label });
+      };
+
+      const executeStatusUpdate = async () => {
+        const target = delegations.find(d => d.id === confirmModal.delegationId);
+        if (!target) return;
+        const newStatus = { ...target.status, [confirmModal.statusKey]: !confirmModal.currentStatus };
+        
+        if (hasFirebase && user) {
+          await setDoc(getDocRef(target.id), { status: newStatus }, { merge: true });
+        } else {
+          setDelegations(delegations.map(d => d.id === target.id ? { ...d, status: newStatus } : d));
+        }
+
+        if (quickViewData && quickViewData.id === confirmModal.delegationId) {
+          setQuickViewData(prev => ({ ...prev, status: newStatus }));
+        }
+        setConfirmModal(prev => ({ ...prev, isOpen: false }));
+      };
+
+      const toggleCountryExpanded = (country) => {
+        const newExpanded = new Set(expandedCountries);
+        if (newExpanded.has(country)) newExpanded.delete(country);
+        else newExpanded.add(country);
+        setExpandedCountries(newExpanded);
+      };
+
+      const handleSyncFlights = async () => {
+        setIsSyncing(true);
+        setTimeout(async () => {
+          const newDelegations = [...delegations];
+          for (const d of newDelegations) {
+            let updated = false;
+            let newDelay = d.delayTime;
+            if (d.arrivalDate === '2026-11-17' && !d.delayTime && Math.random() > 0.3) {
+              const [hours, minutes] = (d.flightTime || '12:00').split(':');
+              const delayedHours = (parseInt(hours) + 1).toString().padStart(2, '0');
+              newDelay = `${delayedHours}:${minutes}`;
+              updated = true;
+            } else if (d.delayTime && Math.random() > 0.5) {
+              newDelay = null;
+              updated = true;
+            }
+            if (updated) {
+              d.delayTime = newDelay;
+              if (hasFirebase && user) await setDoc(getDocRef(d.id), { delayTime: newDelay }, { merge: true });
+            }
+          }
+          if (!hasFirebase) setDelegations(newDelegations);
+          setIsSyncing(false);
+        }, 1500);
+      };
+
+      const getFlag = (countryStr) => {
+        if (countryStr.includes('美國') || countryStr.includes('USA')) return '🇺🇸';
+        if (countryStr.includes('英國') || countryStr.includes('UK')) return '🇬🇧';
+        if (countryStr.includes('加拿大') || countryStr.includes('CAN')) return '🇨🇦';
+        if (countryStr.includes('澳洲') || countryStr.includes('AUS')) return '🇦🇺';
+        if (countryStr.includes('新西蘭') || countryStr.includes('NZ')) return '🇳🇿';
+        return '🏳️';
+      };
+
+      const groupedDelegations = useMemo(() => {
+        let filtered = delegations;
+        if (searchTerm) {
+          const lowerTerm = searchTerm.toLowerCase();
+          filtered = delegations.filter(d => d.country.toLowerCase().includes(lowerTerm) || d.contactPerson.toLowerCase().includes(lowerTerm));
+        }
+        const groups = {};
+        filtered.forEach(d => {
+          if (!groups[d.country]) groups[d.country] = { country: d.country, totalPeople: 0, items: [] };
+          groups[d.country].items.push(d);
+          groups[d.country].totalPeople += (1 + Number(d.accompanyingCount));
+        });
+        return Object.values(groups).sort((a, b) => a.country.localeCompare(b.country));
+      }, [delegations, searchTerm]);
+
+      const renderCalendar = () => {
+        const year = currentDate.getFullYear();
+        const month = currentDate.getMonth();
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        const firstDay = new Date(year, month, 1).getDay(); 
+        const days = [];
+        const weekDays = ['日', '一', '二', '三', '四', '五', '六'];
+        
+        const headers = weekDays.map((day, idx) => (
+          <div key={`header-${idx}`} className="bg-slate-100 border-b border-slate-200 py-2 text-center text-sm font-bold text-slate-600">星期{day}</div>
+        ));
+
+        for (let i = 0; i < firstDay; i++) days.push(<div key={`empty-${i}`} className="bg-slate-50/50 border-b border-r border-slate-200 min-h-[120px]"></div>);
+        
+        for (let d = 1; d <= daysInMonth; d++) {
+          const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+          const dayDelegations = delegations.filter(del => del.arrivalDate === dateStr);
+          days.push(
+            <div key={d} className="bg-white border-b border-r border-slate-200 min-h-[120px] p-1 sm:p-2 hover:bg-slate-50 transition-colors">
+              <div className={`font-bold text-xs sm:text-sm mb-2 w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center rounded-full ${dateStr === '2026-11-17' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-600'}`}>{d}</div>
+              <div className="space-y-1.5">
+                {dayDelegations.map(del => (
+                  <button key={del.id} onClick={() => setQuickViewData(del)} className={`w-full text-left px-1.5 sm:px-2 py-1 sm:py-1.5 rounded-md text-[10px] sm:text-xs font-semibold border transition-colors truncate shadow-sm flex flex-col gap-0.5 ${del.delayTime ? 'bg-red-50 text-red-700 border-red-200' : 'bg-blue-50 text-blue-700 border-blue-200'}`}>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1 truncate"><span>{getFlag(del.country)}</span><span className="truncate">{del.country.split(' ')[0]}</span></div>
+                      {del.flightNumber && <span className="hidden sm:inline-block text-[9px] opacity-70 px-1 bg-white/50 rounded">{del.flightNumber}</span>}
+                    </div>
+                    <div className={`text-[9px] sm:text-[10px] font-medium ml-4 sm:ml-5 ${del.delayTime ? 'text-red-600' : 'text-blue-500'}`}>
+                      {del.delayTime ? <span className="flex items-center gap-1"><AlertTriangle className="h-2.5 w-2.5 hidden sm:block" />改為 {del.delayTime}</span> : <span>抵達: {del.flightTime || '待定'}</span>}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        }
+        
+        return (
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+            <div className="flex flex-wrap items-center justify-between p-3 sm:p-4 border-b border-slate-200 bg-white gap-2">
+              <h2 className="text-lg sm:text-xl font-bold flex items-center gap-2"><Calendar className="h-5 w-5 text-blue-600" /> {year}年 {month + 1}月</h2>
+              <div className="flex gap-2">
+                <button onClick={() => setCurrentDate(new Date(year, month - 1, 1))} className="p-1.5 sm:p-2 hover:bg-slate-100 rounded-lg text-slate-600 border"><ChevronLeft className="h-4 w-4" /></button>
+                <button onClick={() => setCurrentDate(new Date(year, month + 1, 1))} className="p-1.5 sm:p-2 hover:bg-slate-100 rounded-lg text-slate-600 border"><ChevronRight className="h-4 w-4" /></button>
+              </div>
+            </div>
+            <div className="grid grid-cols-7 border-l border-slate-200">{headers}{days}</div>
+          </div>
+        );
+      };
+
+      const renderStatusBadge = (statusValue, label) => (
+        <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border transition-all ${statusValue ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/50' : 'bg-slate-800 text-slate-500 border-slate-700'}`}>
+          {statusValue ? <CheckCircle2 className="h-4 w-4" /> : <Circle className="h-4 w-4" />} {label}
+        </div>
+      );
+
+      return (
+        <div className={`min-h-screen font-sans transition-colors duration-300 ${viewMode === 'control' ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-800'}`}>
+          <header className={`${viewMode === 'control' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'} border-b sticky top-0 z-10 transition-colors`}>
+            <div className="max-w-[1400px] mx-auto px-4 lg:px-8 flex flex-col lg:flex-row items-center justify-between gap-3 py-3">
+              <div className="flex flex-wrap items-center gap-2 justify-center w-full lg:w-auto">
+                <Globe className={`h-6 w-6 ${viewMode === 'control' ? 'text-blue-400' : 'text-blue-600'}`} />
+                <h1 className="text-lg sm:text-xl font-bold">國際代表團接待系統</h1>
+                
+                {hasFirebase ? (
+                  <span className={`px-2 py-0.5 text-xs font-bold rounded flex items-center gap-1 border ${isOnline ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' : 'bg-amber-500/10 text-amber-500 border-amber-500/20'}`}>
+                    <Cloud className="h-3 w-3"/> {isOnline ? '實時同步中' : '連線中...'}
+                  </span>
+                ) : (
+                  <span className="px-2 py-0.5 text-xs font-bold rounded flex items-center gap-1 bg-slate-100 text-slate-500 border border-slate-200" title="尚未設定 Firebase，目前為單機版">
+                    <CloudOff className="h-3 w-3"/> 單機模式
+                  </span>
+                )}
+                {viewMode === 'control' && <span className="px-2 py-0.5 bg-red-500/20 text-red-400 text-xs font-bold rounded animate-pulse border border-red-500/30">大螢幕模式</span>}
+              </div>
+              
+              <div className="flex flex-wrap justify-center items-center gap-2 w-full lg:w-auto">
+                <div className={`flex p-1 rounded-lg ${viewMode === 'control' ? 'bg-slate-800' : 'bg-slate-100'}`}>
+                  <button onClick={() => setViewMode('calendar')} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${viewMode === 'calendar' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}><Calendar className="h-4 w-4" /><span className="hidden sm:inline">月曆</span></button>
+                  <button onClick={() => setViewMode('list')} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${viewMode === 'list' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}><List className="h-4 w-4" /><span className="hidden sm:inline">列表</span></button>
+                  <button onClick={() => setViewMode('control')} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-bold transition-all ${viewMode === 'control' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-500 hover:text-slate-800'}`}><MonitorPlay className="h-4 w-4" /><span className="hidden sm:inline">大螢幕</span></button>
+                </div>
+                
+                <a href="https://www.hongkongairport.com/tc/flights/arrivals/passenger.page" target="_blank" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold bg-sky-50 text-sky-700 border border-sky-200 hover:bg-sky-100"><PlaneLanding className="h-4 w-4" /><span className="hidden sm:inline">航班</span></a>
+                <button onClick={handleSyncFlights} disabled={isSyncing} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 ${isSyncing ? 'opacity-50' : ''}`}><RefreshCw className={`h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`} /><span className="hidden sm:inline">更新</span></button>
+                {viewMode !== 'control' && <button onClick={openAddModal} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium"><Plus className="h-4 w-4" /><span className="hidden sm:inline">新增</span></button>}
+              </div>
+            </div>
+          </header>
+
+          <main className="max-w-[1400px] mx-auto px-4 lg:px-8 py-6 space-y-6">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+              <div className={`p-4 rounded-xl border flex items-center gap-3 ${viewMode === 'control' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
+                <div className={`p-2.5 rounded-lg shrink-0 ${viewMode === 'control' ? 'bg-blue-900/50 text-blue-400' : 'bg-blue-50 text-blue-600'}`}><Globe className="h-5 w-5" /></div>
+                <div><p className={`text-xs font-medium ${viewMode === 'control' ? 'text-slate-400' : 'text-slate-500'}`}>國家</p><p className="text-lg font-bold">{stats.totalCountries}</p></div>
+              </div>
+              <div className={`p-4 rounded-xl border flex items-center gap-3 ${viewMode === 'control' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
+                <div className={`p-2.5 rounded-lg shrink-0 ${viewMode === 'control' ? 'bg-indigo-900/50 text-indigo-400' : 'bg-indigo-50 text-indigo-600'}`}><Briefcase className="h-5 w-5" /></div>
+                <div><p className={`text-xs font-medium ${viewMode === 'control' ? 'text-slate-400' : 'text-slate-500'}`}>行程</p><p className="text-lg font-bold">{stats.totalTeams}</p></div>
+              </div>
+              <div className={`p-4 rounded-xl border flex items-center gap-3 ${viewMode === 'control' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
+                <div className={`p-2.5 rounded-lg shrink-0 ${viewMode === 'control' ? 'bg-violet-900/50 text-violet-400' : 'bg-violet-50 text-violet-600'}`}><Users className="h-5 w-5" /></div>
+                <div><p className={`text-xs font-medium ${viewMode === 'control' ? 'text-slate-400' : 'text-slate-500'}`}>人數</p><p className="text-lg font-bold">{stats.totalPeople}</p></div>
+              </div>
+              <div className={`p-4 rounded-xl border flex items-center gap-3 ${viewMode === 'control' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
+                <div className={`p-2.5 rounded-lg shrink-0 ${viewMode === 'control' ? 'bg-amber-900/50 text-amber-400' : 'bg-amber-50 text-amber-600'}`}><Clock className="h-5 w-5" /></div>
+                <div><p className={`text-xs font-medium ${viewMode === 'control' ? 'text-slate-400' : 'text-slate-500'}`}>今日抵港</p><p className="text-lg font-bold text-amber-500">{stats.todayArrivals}</p></div>
+              </div>
+              <div className={`p-4 rounded-xl border flex items-center gap-3 col-span-2 md:col-span-1 ${viewMode === 'control' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm'}`}>
+                <div className={`p-2.5 rounded-lg shrink-0 ${viewMode === 'control' ? 'bg-emerald-900/50 text-emerald-400' : 'bg-emerald-50 text-emerald-600'}`}><PlaneLanding className="h-5 w-5" /></div>
+                <div><p className={`text-xs font-medium ${viewMode === 'control' ? 'text-slate-400' : 'text-slate-500'}`}>即將抵港</p><p className={`text-lg font-bold ${viewMode === 'control' ? 'text-emerald-400' : 'text-emerald-600'}`}>{stats.upcomingArrivals}</p></div>
+              </div>
+            </div>
+
+            {viewMode === 'calendar' && renderCalendar()}
+
+            {viewMode === 'list' && (
+              <>
+                <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 flex flex-col sm:flex-row justify-between items-center gap-4">
+                  <h2 className="text-lg font-semibold text-slate-800 flex items-center gap-2"><List className="h-5 w-5 text-slate-500" /> 接待管理列表</h2>
+                  <div className="relative w-full sm:w-72">
+                    <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input type="text" placeholder="搜尋國家或聯絡人..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                </div>
+
+                <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden divide-y divide-slate-200">
+                  {groupedDelegations.map((group) => (
+                    <div key={group.country} className="flex flex-col">
+                      <button onClick={() => toggleCountryExpanded(group.country)} className="flex items-center justify-between p-4 hover:bg-slate-50 w-full text-left">
+                        <div className="flex items-center gap-3">
+                          <div className="text-2xl">{getFlag(group.country)}</div>
+                          <div>
+                            <h3 className="text-lg font-bold text-slate-800">{group.country}</h3>
+                            <p className="text-sm text-slate-500">共 {group.items.length} 轉行程 • 總人數 {group.totalPeople} 人</p>
+                          </div>
+                        </div>
+                        {expandedCountries.has(group.country) ? <ChevronDown className="h-5 w-5 text-slate-400" /> : <ChevronRight className="h-5 w-5 text-slate-400" />}
+                      </button>
+
+                      {expandedCountries.has(group.country) && (
+                        <div className="px-4 pb-4 overflow-x-auto">
+                          <table className="w-full text-left text-sm whitespace-nowrap border border-slate-200 rounded-lg">
+                            <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-medium">
+                              <tr>
+                                <th className="px-4 py-3">行程日期</th>
+                                <th className="px-4 py-3">聯絡人 (人數)</th>
+                                <th className="px-4 py-3 min-w-[350px]">接待進度 (點擊打卡)</th>
+                                <th className="px-4 py-3 text-right">操作</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-200 bg-white">
+                              {group.items.map((team) => (
+                                <tr key={team.id} className="hover:bg-slate-50/50">
+                                  <td className="px-4 py-3">
+                                    <div className="flex flex-col gap-1 text-xs">
+                                      <div className="flex items-center gap-1.5 font-medium text-slate-700">
+                                        <PlaneLanding className="h-3.5 w-3.5 text-blue-500" /> <span>{team.arrivalDate}</span>
+                                      </div>
+                                      <div className="flex items-center gap-1 ml-5">
+                                        {team.delayTime ? (
+                                          <><span className="line-through text-slate-400">{team.flightTime}</span><span className="text-red-500 font-bold flex items-center gap-0.5"><AlertTriangle className="h-3 w-3" /> {team.delayTime}</span></>
+                                        ) : (<span className="text-blue-600 font-semibold">{team.flightTime}</span>)}
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <div className="font-semibold text-slate-800">{team.contactPerson}</div>
+                                    <div className="text-xs text-slate-500">同行 {team.accompanyingCount} 人</div>
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+                                      {Object.entries({ arrived: '到港', pickedUp: '接機', atHotel: '到酒店', gotPass: '入場證', gotSouvenir: '記念品' }).map(([key, label]) => (
+                                        <label key={key} className="flex items-center gap-1.5 cursor-pointer group">
+                                          <input type="checkbox" checked={team.status[key] || false} onChange={() => handleStatusClick(team.id, key, team.status[key], label)} className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer" />
+                                          <span className={`text-xs font-medium ${team.status[key] ? 'text-blue-700' : 'text-slate-500 group-hover:text-slate-700'}`}>{label}</span>
+                                        </label>
+                                      ))}
+                                    </div>
+                                  </td>
+                                  <td className="px-4 py-3 text-right">
+                                    <div className="flex items-center justify-end gap-2">
+                                      <button onClick={() => openEditModal(team)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-md"><Edit className="h-4 w-4" /></button>
+                                      <button onClick={() => handleDelete(team.id)} className="p-1.5 text-red-600 hover:bg-red-50 rounded-md"><Trash2 className="h-4 w-4" /></button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {viewMode === 'control' && (
+              <div className="bg-slate-900 rounded-2xl shadow-2xl border border-slate-800 overflow-x-auto">
+                <table className="w-full text-left whitespace-nowrap min-w-[800px]">
+                  <thead className="bg-slate-950 border-b border-slate-800 text-slate-400 font-medium text-sm">
+                    <tr>
+                      <th className="px-6 py-4">國家 / 代表團</th>
+                      <th className="px-6 py-4">抵港及住宿</th>
+                      <th className="px-6 py-4">即時接待狀態</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800">
+                    {delegations.sort((a, b) => new Date(a.arrivalDate) - new Date(b.arrivalDate)).map((team) => (
+                      <tr key={team.id} className="hover:bg-slate-800/50 transition-colors">
+                        <td className="px-6 py-6 align-top">
+                          <div className="text-2xl font-black text-white mb-2">{getFlag(team.country)} {team.country}</div>
+                          <div className="flex flex-col gap-1.5 mt-2">
+                            <div className="flex items-center gap-2 text-slate-300"><UserCheck className="h-4 w-4 text-blue-400" /> {team.contactPerson}</div>
+                            <div className="flex items-center gap-2 text-slate-400"><Users className="h-4 w-4" /> 共 {1 + Number(team.accompanyingCount)} 人</div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-6 align-top">
+                          <div className="space-y-3">
+                            <div className="flex items-center gap-2 text-slate-300">
+                              <PlaneLanding className="h-5 w-5 text-emerald-400" />
+                              <span className="font-bold text-lg">{team.arrivalDate}</span>
+                              {team.flightNumber && <span className="px-2 py-0.5 bg-slate-800 border border-slate-700 text-slate-300 rounded text-sm">{team.flightNumber}</span>}
+                            </div>
+                            <div className="flex items-center gap-2 mt-1">
+                              {team.delayTime ? (
+                                <><span className="text-slate-500 line-through text-lg">{team.flightTime}</span><span className="px-2 py-0.5 bg-red-500/20 text-red-400 border border-red-500/30 rounded text-lg font-black flex items-center gap-1"><AlertTriangle className="h-4 w-4" />延誤 {team.delayTime}</span></>
+                              ) : (<span className="text-emerald-400 text-lg font-bold">{team.flightTime}</span>)}
+                            </div>
+                            <div className="flex items-center gap-2 text-slate-300 mt-2"><Building className="h-4 w-4 text-amber-400" /> {team.hotel}</div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-6 align-middle">
+                          <div className="flex flex-wrap items-center gap-3">
+                            {renderStatusBadge(team.status?.arrived, '抵達香港')}
+                            {renderStatusBadge(team.status?.pickedUp, '專車接機')}
+                            {renderStatusBadge(team.status?.atHotel, '已達酒店')}
+                            {renderStatusBadge(team.status?.gotPass, '領取入場證')}
+                            {renderStatusBadge(team.status?.gotSouvenir, '派發紀念品')}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </main>
+
+          {isModalOpen && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
+              <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+                <div className="flex justify-between items-center p-6 border-b border-slate-200">
+                  <h2 className="text-xl font-bold text-slate-800">{editingId ? '編輯' : '新增'}</h2>
+                  <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600"><X className="h-6 w-6" /></button>
+                </div>
+                <div className="p-6 space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1"><label className="text-sm font-medium">國家/地區</label><input type="text" value={formData.country} onChange={e => setFormData({...formData, country: e.target.value})} className="w-full p-2 border border-slate-300 rounded-lg outline-none"/></div>
+                    <div className="space-y-1"><label className="text-sm font-medium">主要聯絡人</label><input type="text" value={formData.contactPerson} onChange={e => setFormData({...formData, contactPerson: e.target.value})} className="w-full p-2 border border-slate-300 rounded-lg outline-none"/></div>
+                    <div className="space-y-1"><label className="text-sm font-medium">抵港日期</label><input type="date" value={formData.arrivalDate} onChange={e => setFormData({...formData, arrivalDate: e.target.value})} className="w-full p-2 border border-slate-300 rounded-lg outline-none"/></div>
+                    <div className="space-y-1"><label className="text-sm font-medium">航班編號</label><input type="text" value={formData.flightNumber || ''} onChange={e => setFormData({...formData, flightNumber: e.target.value})} className="w-full p-2 border border-slate-300 rounded-lg outline-none uppercase"/></div>
+                    <div className="space-y-1"><label className="text-sm font-medium">航班時間</label><input type="time" value={formData.flightTime || ''} onChange={e => setFormData({...formData, flightTime: e.target.value})} className="w-full p-2 border border-slate-300 rounded-lg outline-none"/></div>
+                    <div className="space-y-1"><label className="text-sm font-medium">同行人數</label><input type="number" min="0" value={formData.accompanyingCount} onChange={e => setFormData({...formData, accompanyingCount: e.target.value})} className="w-full p-2 border border-slate-300 rounded-lg outline-none"/></div>
+                    <div className="space-y-1"><label className="text-sm font-medium">入住酒店</label><input type="text" value={formData.hotel} onChange={e => setFormData({...formData, hotel: e.target.value})} className="w-full p-2 border border-slate-300 rounded-lg outline-none"/></div>
+                  </div>
+                </div>
+                <div className="flex justify-end gap-3 p-6 border-t border-slate-200 bg-slate-50">
+                  <button onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-200 rounded-lg font-medium">取消</button>
+                  <button onClick={handleSave} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium">儲存</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {quickViewData && (
+            <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col">
+                <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-blue-50">
+                  <h3 className="text-xl font-bold text-blue-900 flex items-center gap-2">{getFlag(quickViewData.country)} {quickViewData.country}</h3>
+                  <button onClick={() => setQuickViewData(null)} className="p-1 hover:bg-blue-100 rounded-md text-blue-700"><X className="h-5 w-5" /></button>
+                </div>
+                <div className="p-6 space-y-6">
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2"><Clock className="h-4 w-4 text-blue-600" /> 快速更新進度</h4>
+                    <div className="grid grid-cols-2 gap-3">
+                      {Object.entries({ arrived: '抵達', pickedUp: '接機', atHotel: '到酒店', gotPass: '入場證', gotSouvenir: '紀念品' }).map(([key, label]) => (
+                        <label key={key} className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${quickViewData.status?.[key] ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-slate-200'}`}>
+                          <input type="checkbox" checked={quickViewData.status?.[key] || false} onChange={() => handleStatusClick(quickViewData.id, key, quickViewData.status?.[key], label)} className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500" /> 
+                          <span className={`text-sm font-medium ${quickViewData.status?.[key] ? 'text-emerald-700' : 'text-slate-700'}`}>{label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-end items-center">
+                  <button onClick={() => setQuickViewData(null)} className="px-5 py-2 bg-slate-800 text-white text-sm font-bold rounded-lg hover:bg-slate-700">關閉</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {confirmModal.isOpen && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[60] backdrop-blur-sm">
+              <div className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden p-6">
+                <div className="w-12 h-12 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center mb-4 mx-auto"><AlertTriangle className="h-6 w-6" /></div>
+                <h3 className="text-lg font-bold text-center mb-2">確認資料</h3>
+                <p className="text-center text-slate-600 text-sm mb-6">即將把「{confirmModal.label}」狀態更改為：<br/><span className={`inline-block mt-2 px-3 py-1 rounded-full text-sm font-bold ${!confirmModal.currentStatus ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>{!confirmModal.currentStatus ? '✅ 完成' : '取消'}</span></p>
+                <div className="flex gap-3">
+                  <button onClick={() => setConfirmModal({...confirmModal, isOpen: false})} className="flex-1 py-2 bg-slate-100 text-slate-700 rounded-lg font-medium">取消</button>
+                  <button onClick={executeStatusUpdate} className="flex-1 py-2 bg-blue-600 text-white rounded-lg font-medium">確認</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    const root = createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
 </body>
 </html>
